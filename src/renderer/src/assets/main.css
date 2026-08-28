@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+    --color-app: var(--app);
+    --color-surface: var(--surface);
+    --color-raised: var(--raised);
+    --color-line: var(--line);
+    --color-line2: var(--line2);
+    --color-primary: var(--txt);
+    --color-secondary: var(--txt2);
+    --color-faint: var(--txt3);
+    --color-accent: #8b5cf6;
+    --color-accent2: #7c3aed;
+    --color-accentsoft: var(--accsoft);
+}
+
+@theme {
+    --font-sans:
+        "Inter Variable", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+}
+
+:root {
+    --app: #fafafa;
+    --surface: #ffffff;
+    --raised: #f4f4f5;
+    --line: #e4e4e7;
+    --line2: #d4d4d8;
+    --txt: #18181b;
+    --txt2: #52525b;
+    --txt3: #a1a1aa;
+    --accsoft: #f3ecff;
+    color-scheme: light;
+}
+
+.dark {
+    --app: #09090b;
+    --surface: #111113;
+    --raised: #1b1b20;
+    --line: #232329;
+    --line2: #303036;
+    --txt: #f4f4f5;
+    --txt2: #a1a1aa;
+    --txt3: #6d6d76;
+    --accsoft: #201936;
+    color-scheme: dark;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+}
+
+body {
+    @apply overflow-hidden bg-app font-sans text-primary antialiased;
+}
+
+.drag-region {
+    -webkit-app-region: drag;
+}
+
+.no-drag {
+    -webkit-app-region: no-drag;
+}
+
+.cm-editor {
+    height: 100%;
+}
+
+.cm-editor.cm-focused {
+    outline: none;
+}
+
+.cm-editor .cm-scroller {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    line-height: 1.55;
+}
+
+.cm-gutters {
+    background-color: transparent;
+    border-right: 1px solid var(--line);
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--line2);
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
