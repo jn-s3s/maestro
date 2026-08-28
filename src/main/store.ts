@@ -31,7 +31,15 @@ export function migrateLegacyRoot(): void {
 
 const THEMES: ThemeMode[] = ["system", "light", "dark"];
 
+/**
+ * The current settings schema version written to disk. Bump this and
+ * add a migration step in {@link migrateSettings} when the shape of
+ * `AppSettings` changes in a way that needs data preservation.
+ */
+export const SETTINGS_VERSION = 1;
+
 const DEFAULT_SETTINGS: AppSettings = {
+    version: SETTINGS_VERSION,
     theme: "system",
     closeToTray: false,
     historyResetDone: false,
@@ -62,32 +70,37 @@ function customEntries(value: unknown): CustomEntry[] {
 
 /**
  * Loads the persisted app settings, with safe defaults for missing fields.
+ * Files without a matching `version` are treated as defaults so any
+ * shape mismatch from a future migration is recoverable by deleting
+ * `settings.json`.
  *
  * @returns The complete settings object.
  */
 export function loadSettings(): AppSettings {
+    let obj: Record<string, unknown>;
     try {
         const parsed: unknown = JSON.parse(
             fs.readFileSync(SETTINGS_FILE, "utf8"),
         );
-        const obj = (parsed ?? {}) as Record<string, unknown>;
-        const theme =
-            typeof obj.theme === "string" &&
-            (THEMES as string[]).includes(obj.theme)
-                ? (obj.theme as ThemeMode)
-                : "system";
-        return {
-            theme,
-            closeToTray: obj.closeToTray === true,
-            historyResetDone: obj.historyResetDone === true,
-            perFileHistoryResetDone: obj.perFileHistoryResetDone === true,
-            hiddenTools: stringArray(obj.hiddenTools),
-            recentFiles: stringArray(obj.recentFiles),
-            custom: customEntries(obj.custom),
-        };
+        obj = (parsed ?? {}) as Record<string, unknown>;
     } catch {
         return { ...DEFAULT_SETTINGS };
     }
+    const theme =
+        typeof obj.theme === "string" &&
+        (THEMES as string[]).includes(obj.theme)
+            ? (obj.theme as ThemeMode)
+            : "system";
+    return {
+        version: SETTINGS_VERSION,
+        theme,
+        closeToTray: obj.closeToTray === true,
+        historyResetDone: obj.historyResetDone === true,
+        perFileHistoryResetDone: obj.perFileHistoryResetDone === true,
+        hiddenTools: stringArray(obj.hiddenTools),
+        recentFiles: stringArray(obj.recentFiles),
+        custom: customEntries(obj.custom),
+    };
 }
 
 /**
@@ -103,12 +116,15 @@ export function saveSettings(settings: AppSettings): void {
 }
 
 /**
- * Appends a timestamped line to the rotating main log file.
+ * Appends a timestamped line to the rotating main log file. When the
+ * file write itself fails (disk full, permissions, missing directory),
+ * the same line is mirrored to stderr so the failure is not silent.
  *
  * @param scope - Short label for the error origin.
  * @param detail - Human-readable error description.
  */
 export function logError(scope: string, detail: string): void {
+    const line = `[${new Date().toISOString()}] ${scope}: ${detail}\n`;
     try {
         fs.mkdirSync(LOGS_DIR, { recursive: true });
         const file = path.join(LOGS_DIR, "main.log");
@@ -124,13 +140,20 @@ export function logError(scope: string, detail: string): void {
                 // ignore
             }
         }
-        fs.appendFileSync(
-            file,
-            `[${new Date().toISOString()}] ${scope}: ${detail}\n`,
-            "utf8",
-        );
-    } catch {
-        // Logging must never throw or recurse.
+        fs.appendFileSync(file, line, "utf8");
+    } catch (err) {
+        // Logging must never throw or recurse, but a silent failure
+        // hides real operational issues, so surface both the original
+        // detail and the secondary error to stderr.
+        try {
+            process.stderr.write(
+                `logError fallback for ${scope}: ${detail}` +
+                    (err instanceof Error ? ` (${err.message})` : "") +
+                    "\n",
+            );
+        } catch {
+            // give up
+        }
     }
 }
 

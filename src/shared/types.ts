@@ -55,6 +55,7 @@ export interface CustomEntry {
 export type ThemeMode = "system" | "light" | "dark";
 
 export interface AppSettings {
+    version: number;
     theme: ThemeMode;
     closeToTray: boolean;
     historyResetDone: boolean;

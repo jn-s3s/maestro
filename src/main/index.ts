@@ -213,16 +213,42 @@ if (!app.requestSingleInstanceLock()) {
 
     /**
      * Assembles the tray context menu, including up to five recent files.
+     * Stale recent entries (paths that no longer resolve inside a
+     * registered region) are pruned and persisted before rendering.
      */
     function buildTrayMenu(): Menu {
         const settings = loadSettings();
-        const recents = settings.recentFiles.slice(0, 5).map((p) => ({
-            label: path.basename(p) || p,
-            click: (): void => {
-                showMainWindow();
-                mainWindow?.webContents.send("fs:open", p);
-            },
-        }));
+        const validRecents: string[] = [];
+        const recents: Electron.MenuItemConstructorOptions[] = [];
+        for (const p of settings.recentFiles.slice(0, 5)) {
+            try {
+                const canonical = assertRegistered(p);
+                validRecents.push(canonical);
+                recents.push({
+                    label: path.basename(canonical) || canonical,
+                    click: (): void => {
+                        showMainWindow();
+                        mainWindow?.webContents.send("fs:open", canonical);
+                    },
+                });
+            } catch (err) {
+                logError(
+                    "tray-recent-prune",
+                    err instanceof Error ? err.message : String(err),
+                );
+            }
+        }
+        if (validRecents.length !== settings.recentFiles.length) {
+            const next = { ...settings, recentFiles: validRecents };
+            try {
+                saveSettings(next);
+            } catch (err) {
+                logError(
+                    "tray-recent-persist",
+                    err instanceof Error ? err.message : String(err),
+                );
+            }
+        }
         const template: Electron.MenuItemConstructorOptions[] = [
             { label: "Open Maestro", click: () => showMainWindow() },
             ...(recents.length > 0
@@ -404,8 +430,31 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     /**
+     * Returns true when the given real path is a registered root, sits
+     * inside a registered folder, or matches a registered file exactly.
+     *
+     * @param tools - The detected tool list.
+     * @param real - A realpath-resolved absolute path.
+     */
+    function isWithinRegistered(tools: Tool[], real: string): boolean {
+        const key = normalizeKey(real);
+        if (registeredPaths(tools).has(key)) {
+            return true;
+        }
+        if (registeredFolderRoots(tools).has(key)) {
+            return true;
+        }
+        if (findContainingFolder(tools, real) !== undefined) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Resolves symlinks via the nearest existing ancestor so a symlink
-     * planted under a registered root cannot point outside it.
+     * planted under a registered root cannot point outside it. When the
+     * trailing components do not yet exist, the existing ancestor must
+     * itself be inside the registered region before the result is trusted.
      *
      * @param raw - The unvalidated path from the IPC channel.
      * @returns The canonicalized path.
@@ -417,18 +466,23 @@ if (!app.requestSingleInstanceLock()) {
         }
         const resolved = path.resolve(raw.trim());
         let probe = resolved;
+        let walked = false;
         while (!fs.existsSync(probe)) {
             const parent = path.dirname(probe);
             if (parent === probe) {
                 throw new Error("Invalid path");
             }
             probe = parent;
+            walked = true;
         }
         let realProbe: string;
         try {
             realProbe = fs.realpathSync(probe);
         } catch {
             throw new Error("Invalid path");
+        }
+        if (walked && !isWithinRegistered(getTools(), realProbe)) {
+            throw new Error("Path is not a registered config file");
         }
         return path.join(realProbe, path.relative(probe, resolved));
     }
@@ -648,6 +702,19 @@ if (!app.requestSingleInstanceLock()) {
             if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
                 return { ok: false, error: "Path is required" };
             }
+            const trimmedName = name.trim();
+            if (trimmedName.length > 80) {
+                return { ok: false, error: "Name must be 80 characters or fewer" };
+            }
+            for (let i = 0; i < trimmedName.length; i += 1) {
+                const code = trimmedName.charCodeAt(i);
+                if (code < 0x20 || code === 0x7f) {
+                    return {
+                        ok: false,
+                        error: "Name cannot contain control characters",
+                    };
+                }
+            }
             const p = path.normalize(rawPath.trim());
             if (!path.isAbsolute(p)) {
                 return {
@@ -665,9 +732,17 @@ if (!app.requestSingleInstanceLock()) {
             if (duplicateOfCustom || duplicateOfTool) {
                 return { ok: false, error: "This path is already registered" };
             }
+            try {
+                fs.accessSync(p, fs.constants.R_OK);
+            } catch {
+                logError(
+                    "custom:add-access",
+                    `Path is not yet readable: ${p}`,
+                );
+            }
             settings.custom.push({
                 id: `custom-${randomUUID()}`,
-                name: name.trim(),
+                name: trimmedName,
                 path: p,
             });
             persist(settings);
