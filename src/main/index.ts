@@ -507,7 +507,11 @@ if (!app.requestSingleInstanceLock()) {
         if (walked && !isWithinRegistered(getTools(), realProbe)) {
             throw new Error("Path is not a registered config file");
         }
-        return path.join(realProbe, path.relative(probe, resolved));
+        const reconstructed = path.join(realProbe, path.relative(probe, resolved));
+        if (!isWithinRegistered(getTools(), reconstructed)) {
+            throw new Error("Path is not a registered config file");
+        }
+        return reconstructed;
     }
 
     /**
