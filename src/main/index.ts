@@ -832,7 +832,7 @@ if (!app.requestSingleInstanceLock()) {
                     /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
                 if (
                     !trimmed ||
-                    !/^[^\\/:*?"<>|]+$/.test(trimmed) ||
+                    !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
                     trimmed === "." ||
                     trimmed === ".." ||
                     trimmed.startsWith(".") ||

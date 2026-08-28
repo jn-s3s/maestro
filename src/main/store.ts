@@ -4,22 +4,24 @@ import os from "node:os";
 import path from "node:path";
 import type { AppSettings, CustomEntry, ThemeMode } from "../shared/types";
 
+// Canonical Maestro data root. Keep in sync with the same expression in
+// scripts/clear-data.mjs and scripts/dump-logs.mjs.
 const BASE_DIR =
     process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 const LEGACY_ROOT = path.join(BASE_DIR, "ai-config-manager");
-const ROOT = path.join(BASE_DIR, "maestro");
-const SETTINGS_FILE = path.join(ROOT, "settings.json");
-export const BACKUPS_ROOT = path.join(ROOT, "backups");
-const LOGS_DIR = path.join(ROOT, "logs");
+export const DATA_ROOT = path.join(BASE_DIR, "maestro");
+const SETTINGS_FILE = path.join(DATA_ROOT, "settings.json");
+export const BACKUPS_ROOT = path.join(DATA_ROOT, "backups");
+const LOGS_DIR = path.join(DATA_ROOT, "logs");
 
 /**
  * Moves the legacy settings folder into the current Maestro root when found.
  */
 export function migrateLegacyRoot(): void {
     try {
-        if (!fs.existsSync(ROOT) && fs.existsSync(LEGACY_ROOT)) {
-            fs.mkdirSync(path.dirname(ROOT), { recursive: true });
-            fs.renameSync(LEGACY_ROOT, ROOT);
+        if (!fs.existsSync(DATA_ROOT) && fs.existsSync(LEGACY_ROOT)) {
+            fs.mkdirSync(path.dirname(DATA_ROOT), { recursive: true });
+            fs.renameSync(LEGACY_ROOT, DATA_ROOT);
         }
     } catch (err) {
         logError(
@@ -109,7 +111,7 @@ export function loadSettings(): AppSettings {
  * @param settings - The settings object to persist.
  */
 export function saveSettings(settings: AppSettings): void {
-    fs.mkdirSync(ROOT, { recursive: true });
+    fs.mkdirSync(DATA_ROOT, { recursive: true });
     const tmp = `${SETTINGS_FILE}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(settings, null, 2), "utf8");
     fs.renameSync(tmp, SETTINGS_FILE);
@@ -200,27 +202,43 @@ export function backupDirForFile(filePath: string): string {
  * @returns The snapshot path when created, or null when the content is unchanged.
  */
 export function backupFile(filePath: string): string | null {
-    if (!fs.existsSync(filePath)) return null;
+    const stat = (p: string): number | null => {
+        try {
+            return fs.statSync(p).size;
+        } catch {
+            return null;
+        }
+    };
+    const readUtf8 = (p: string): string | null => {
+        try {
+            return fs.readFileSync(p, "utf8");
+        } catch {
+            return null;
+        }
+    };
 
-    let current: string;
-    try {
-        current = fs.readFileSync(filePath, "utf8");
-    } catch {
-        return null;
-    }
+    const currentSize = stat(filePath);
+    if (currentSize === null) return null;
 
     const dir = backupDirForFile(filePath);
     fs.mkdirSync(dir, { recursive: true });
 
     const all = fs.readdirSync(dir).sort();
     const latest = all[all.length - 1];
+    let current: string | null = null;
     if (latest) {
-        try {
-            const prev = fs.readFileSync(path.join(dir, latest), "utf8");
-            if (prev === current) return null;
-        } catch {
-            // Ignore unreadable prior snapshot; treat as different content.
+        const prevSize = stat(path.join(dir, latest));
+        if (prevSize !== null && prevSize === currentSize) {
+            const prev = readUtf8(path.join(dir, latest));
+            current = readUtf8(filePath);
+            if (prev !== null && current !== null && prev === current) {
+                return null;
+            }
         }
+    }
+    if (current === null) {
+        current = readUtf8(filePath);
+        if (current === null) return null;
     }
 
     const d = new Date();

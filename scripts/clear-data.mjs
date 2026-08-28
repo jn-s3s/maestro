@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// Keep in sync with the same expression in src/main/store.ts.
 const BASE_DIR = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 const MAESTRO_ROOT = path.join(BASE_DIR, "maestro");
 const TARGETS = [

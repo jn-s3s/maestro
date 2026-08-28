@@ -2,6 +2,19 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { Api } from "../shared/types";
 
 /**
+ * Preload bridge. The renderer runs with `contextIsolation: true`,
+ * `nodeIntegration: false` and `sandbox: true`, so the only Node and
+ * Electron primitives reachable from the page are those exposed below.
+ * Deliberately not exposed:
+ * - `ipcRenderer.sendSync` (synchronous IPC, which can stall the UI)
+ * - `ipcRenderer.send` and raw `ipcRenderer.on` (the renderer must use
+ *   the typed `invoke` and `subscribe` helpers)
+ * - `shell`, `clipboard`, `nativeImage`, `dialog`, `app` (filesystem and
+ *   OS surfaces that must stay in the main process)
+ * - `process`, `require`, `Buffer`, `globalThis` (Node primitives)
+ */
+
+/**
  * Subscribes a renderer-side callback to an IPC push channel.
  *
  * @param channel - The IPC channel to listen on.
