@@ -1,0 +1,18 @@
+appId: dev.jn-s3s.maestro
+productName: Maestro
+directories:
+    output: release
+    buildResources: resources
+files:
+    - out/**
+extraResources:
+    - from: resources
+      to: resources
+win:
+    icon: resources/icon.png
+    electronLanguages:
+        - en-US
+    target:
+        - target: portable
+portable:
+    artifactName: ${productName}-Portable-${version}.${ext}
