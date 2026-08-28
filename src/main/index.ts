@@ -304,6 +304,30 @@ if (!app.requestSingleInstanceLock()) {
         return path.normalize(p).toLowerCase();
     }
 
+    /**
+     * Checks if a JSON-like string has excessive nesting depth.
+     * Counts opening brackets to estimate nesting level.
+     *
+     * @param content - The string content to check.
+     * @returns true if nesting appears excessive.
+     */
+    function hasExcessiveNesting(content: string): boolean {
+        let depth = 0;
+        let maxDepth = 0;
+        for (let i = 0; i < content.length; i += 1) {
+            const ch = content[i];
+            if (ch === "{" || ch === "[") {
+                depth += 1;
+                if (depth > maxDepth) {
+                    maxDepth = depth;
+                }
+            } else if (ch === "}" || ch === "]") {
+                depth = Math.max(0, depth - 1);
+            }
+        }
+        return maxDepth > 10000;
+    }
+
     let watcher: fs.FSWatcher | null = null;
     let watchDir: string | null = null;
     let watchBase = "";
@@ -583,6 +607,9 @@ if (!app.requestSingleInstanceLock()) {
                 if (typeof content !== "string") {
                     return { ok: false, error: "Invalid content" };
                 }
+                if (hasExcessiveNesting(content)) {
+                    return { ok: false, error: "Content has excessive nesting" };
+                }
                 const lang = langFromPath(filePath);
                 if (lang === "json") {
                     try {
@@ -772,11 +799,13 @@ if (!app.requestSingleInstanceLock()) {
         });
 
         safe("backups:read", (rawPath: unknown): { content: string } => {
-            return { content: readBackupFile(rawPath) };
+            const filePath = assertRegistered(rawPath);
+            return { content: readBackupFile(filePath) };
         });
 
         safe("backups:delete", (rawPath: unknown): OpResult => {
-            deleteBackupFile(rawPath);
+            const filePath = assertRegistered(rawPath);
+            deleteBackupFile(filePath);
             return { ok: true };
         });
 
@@ -874,7 +903,22 @@ if (!app.requestSingleInstanceLock()) {
             if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) {
                 return { ok: false, error: "Folder does not exist" };
             }
-            for (const tracked of registeredPaths(tools)) {
+            const trackedBefore = registeredPaths(tools);
+            for (const tracked of trackedBefore) {
+                const rel = path.relative(p, tracked);
+                if (
+                    rel === "" ||
+                    (!rel.startsWith("..") && !path.isAbsolute(rel))
+                ) {
+                    return {
+                        ok: false,
+                        error: "Folder contains tracked config files",
+                    };
+                }
+            }
+            const toolsFresh = getTools();
+            const trackedAfter = registeredPaths(toolsFresh);
+            for (const tracked of trackedAfter) {
                 const rel = path.relative(p, tracked);
                 if (
                     rel === "" ||
