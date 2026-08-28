@@ -26,7 +26,6 @@ import {
     backupFile,
     loadSettings,
     logError,
-    migrateLegacyRoot,
     pushRecent,
     saveSettings,
 } from "./store";
@@ -934,7 +933,6 @@ if (!app.requestSingleInstanceLock()) {
     void app
         .whenReady()
         .then(() => {
-            migrateLegacyRoot();
             const settings = loadSettings();
             let settingsDirty = false;
             const resetBackups = (): void => {

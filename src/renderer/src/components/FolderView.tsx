@@ -258,7 +258,7 @@ export default function FolderView({
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
                 {entries === null ? (
-                    <p className="text-xs text-faint">Loading…</p>
+                    <p className="text-xs text-faint">Loading...</p>
                 ) : entries.length === 0 ? (
                     <p className="text-xs leading-relaxed text-faint">
                         Nothing here yet. Create your first file below (e.g.

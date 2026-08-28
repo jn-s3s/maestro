@@ -8,28 +8,10 @@ import type { AppSettings, CustomEntry, ThemeMode } from "../shared/types";
 // scripts/clear-data.mjs and scripts/dump-logs.mjs.
 const BASE_DIR =
     process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
-const LEGACY_ROOT = path.join(BASE_DIR, "ai-config-manager");
 export const DATA_ROOT = path.join(BASE_DIR, "maestro");
 const SETTINGS_FILE = path.join(DATA_ROOT, "settings.json");
 export const BACKUPS_ROOT = path.join(DATA_ROOT, "backups");
 const LOGS_DIR = path.join(DATA_ROOT, "logs");
-
-/**
- * Moves the legacy settings folder into the current Maestro root when found.
- */
-export function migrateLegacyRoot(): void {
-    try {
-        if (!fs.existsSync(DATA_ROOT) && fs.existsSync(LEGACY_ROOT)) {
-            fs.mkdirSync(path.dirname(DATA_ROOT), { recursive: true });
-            fs.renameSync(LEGACY_ROOT, DATA_ROOT);
-        }
-    } catch (err) {
-        logError(
-            "migrate-root",
-            err instanceof Error ? err.message : String(err),
-        );
-    }
-}
 
 const THEMES: ThemeMode[] = ["system", "light", "dark"];
 
