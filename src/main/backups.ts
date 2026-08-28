@@ -6,11 +6,14 @@ import type { BackupEntry } from "../shared/types";
 const MAX_BACKUP_READ_BYTES = 5 * 1024 * 1024;
 
 /**
- * Validates and canonicalizes a renderer-supplied backup path.
+ * Validates and canonicalizes a renderer-supplied backup path, locking the
+ * resolved target through an open file descriptor so a racing symlink swap
+ * cannot redirect the subsequent read or stat.
  *
  * @param raw - The unvalidated value received over the IPC channel.
  * @returns The canonical path rooted inside the backup directory.
- * @throws When the path is invalid or escapes the backup root.
+ * @throws When the path is invalid, escapes the backup root, or the
+ * resolved entry exceeds the backup read limit.
  */
 export function assertBackupPath(raw: unknown): string {
     if (typeof raw !== "string" || raw.trim().length === 0)
@@ -42,13 +45,38 @@ export function assertBackupPath(raw: unknown): string {
         walked = true;
     }
     let realProbe: string;
+    let fd: number | null = null;
     try {
+        // Open through the canonical real path so the descriptor is locked
+        // against symlink swaps for the rest of this call.
         realProbe = fs.realpathSync(probe);
-        const st = fs.statSync(probe);
-        if (walked ? !st.isDirectory() : !st.isFile())
+        fd = fs.openSync(realProbe, "r");
+        const st = fs.fstatSync(fd);
+        if (walked ? !st.isDirectory() : !st.isFile()) {
             throw new Error("Invalid backup path");
-    } catch {
-        throw new Error("Invalid backup path");
+        }
+        if (!walked && st.size > MAX_BACKUP_READ_BYTES) {
+            throw new Error("Backup file is larger than 5 MB");
+        }
+    } catch (err) {
+        if (fd !== null) {
+            try {
+                fs.closeSync(fd);
+            } catch {
+                // ignore
+            }
+        }
+        if (err instanceof Error && err.message.startsWith("Invalid backup"))
+            throw err;
+        throw new Error("Invalid backup path", { cause: err });
+    } finally {
+        if (fd !== null) {
+            try {
+                fs.closeSync(fd);
+            } catch {
+                // ignore
+            }
+        }
     }
     const realRel = path.relative(realRoot, realProbe);
     if (
@@ -109,14 +137,27 @@ export function listBackupsForFile(filePath: string): BackupEntry[] {
  */
 export function readBackupFile(raw: unknown): string {
     const p = assertBackupPath(raw);
+    let fd: number;
     try {
-        if (fs.statSync(p).size > MAX_BACKUP_READ_BYTES)
-            throw new Error("Backup file is larger than 5 MB");
-        return fs.readFileSync(p, "utf8");
+        fd = fs.openSync(p, "r");
     } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "ENOENT")
             throw new Error("Backup file does not exist", { cause: err });
         throw err;
+    }
+    try {
+        // Re-validate size against the locked fd to defeat a symlink swap
+        // between the validation in assertBackupPath and the actual read.
+        const st = fs.fstatSync(fd);
+        if (st.size > MAX_BACKUP_READ_BYTES)
+            throw new Error("Backup file is larger than 5 MB");
+        return fs.readFileSync(fd, "utf8");
+    } finally {
+        try {
+            fs.closeSync(fd);
+        } catch {
+            // ignore
+        }
     }
 }
 

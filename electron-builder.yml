@@ -5,6 +5,7 @@ directories:
     buildResources: resources
 files:
     - out/**
+asar: true
 extraResources:
     - from: resources
       to: resources

@@ -31,7 +31,6 @@ import {
     saveSettings,
 } from "./store";
 import {
-    assertBackupPath,
     clearBackupsForFile,
     clearBackupsForFolder,
     deleteBackupFile,
@@ -699,11 +698,11 @@ if (!app.requestSingleInstanceLock()) {
         });
 
         safe("backups:read", (rawPath: unknown): { content: string } => {
-            return { content: readBackupFile(assertBackupPath(rawPath)) };
+            return { content: readBackupFile(rawPath) };
         });
 
         safe("backups:delete", (rawPath: unknown): OpResult => {
-            deleteBackupFile(assertBackupPath(rawPath));
+            deleteBackupFile(rawPath);
             return { ok: true };
         });
 
