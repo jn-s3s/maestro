@@ -148,6 +148,8 @@ export interface Api {
     createFolderIn(folderPath: string, name: string): Promise<OpResult>;
     deleteFile(path: string): Promise<OpResult>;
     deleteFolder(path: string): Promise<OpResult>;
+    renameFile(path: string, newName: string): Promise<OpResult>;
+    renameFolder(path: string, newName: string): Promise<OpResult>;
     onThemeChanged(cb: (dark: boolean) => void): () => void;
     onOpenFile(cb: (path: string) => void): () => void;
 }

@@ -62,6 +62,10 @@ const api: Api = {
     deleteFile: (filePath) => ipcRenderer.invoke("file:delete", filePath),
     deleteFolder: (folderPath) =>
         ipcRenderer.invoke("folder:delete", folderPath),
+    renameFile: (filePath, newName) =>
+        ipcRenderer.invoke("file:rename", filePath, newName),
+    renameFolder: (folderPath, newName) =>
+        ipcRenderer.invoke("folder:rename", folderPath, newName),
     onFileChanged: (cb) => subscribe("fs:changed", cb),
     onThemeChanged: (cb) => subscribe("theme:changed", cb),
     onOpenFile: (cb) => subscribe("fs:open", cb),

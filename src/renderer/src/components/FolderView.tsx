@@ -72,6 +72,11 @@ export default function FolderView({
         y: number;
         items: ContextMenuItem[];
     } | null>(null);
+    const [renaming, setRenaming] = useState<{
+        entry: DirEntry;
+        value: string;
+    } | null>(null);
+    const [focusedPath, setFocusedPath] = useState<string | null>(null);
     const requestRef = useRef(0);
 
     const cwdPath = useMemo(
@@ -222,6 +227,7 @@ export default function FolderView({
         const items: ContextMenuItem[] = entry.isDir
             ? [
                   { label: "Open", onClick: () => enter(entry) },
+                  { label: "Rename", onClick: () => startRename(entry) },
                   { label: "New file here", onClick: () => {} },
                   { label: "New folder here", onClick: () => {} },
                   {
@@ -232,6 +238,7 @@ export default function FolderView({
               ]
             : [
                   { label: "Open", onClick: () => open(entry) },
+                  { label: "Rename", onClick: () => startRename(entry) },
                   {
                       label: "Delete file",
                       danger: true,
@@ -239,6 +246,38 @@ export default function FolderView({
                   },
               ];
         setContextMenu({ x: e.clientX, y: e.clientY, items });
+    };
+
+    const startRename = (entry: DirEntry): void => {
+        setRenaming({ entry, value: entry.name });
+    };
+
+    const cancelRename = (): void => {
+        setRenaming(null);
+    };
+
+    const commitRename = async (): Promise<void> => {
+        const r = renaming;
+        if (!r) return;
+        const trimmed = r.value.trim();
+        if (!trimmed || trimmed === r.entry.name) {
+            setRenaming(null);
+            return;
+        }
+        try {
+            const res = r.entry.isDir
+                ? await window.api.renameFolder(r.entry.path, trimmed)
+                : await window.api.renameFile(r.entry.path, trimmed);
+            if (res.ok) {
+                setRenaming(null);
+                load(cwdPath);
+                onMutated?.();
+            } else {
+                toast.error(res.error ?? "Failed to rename");
+            }
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        }
     };
 
     return (
@@ -317,68 +356,169 @@ export default function FolderView({
                         code-review.md).
                     </p>
                 ) : (
-                    <ul className="space-y-1">
+                    <ul
+                        className="space-y-1"
+                        onKeyDown={(e) => {
+                            if (e.key !== "Delete" || !focusedPath) return;
+                            const entry = entries.find(
+                                (x) => x.path === focusedPath,
+                            );
+                            if (entry) {
+                                e.preventDefault();
+                                setPendingDelete(entry);
+                            }
+                        }}
+                    >
                         {entries.map((entry) =>
                             entry.isDir ? (
                                 <li key={entry.path}>
-                                    <button
-                                        type="button"
-                                        onClick={() => enter(entry)}
-                                        onContextMenu={(e) =>
-                                            openContextMenu(e, entry)
-                                        }
-                                        title={entry.path}
-                                        className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-faint transition-colors hover:bg-surface hover:text-primary"
-                                    >
-                                        <Folder
-                                            size={14}
-                                            className="shrink-0 text-accent"
-                                        />
-                                        <span className="min-w-0 flex-1 truncate text-left font-mono text-xs">
-                                            {entry.name}
-                                        </span>
-                                        <ChevronRight
-                                            size={14}
-                                            className="shrink-0 text-faint transition-colors group-hover:text-secondary"
-                                        />
-                                    </button>
+                                    {renaming?.entry.path === entry.path ? (
+                                        <div className="flex items-center gap-3 rounded-xl bg-surface px-3 py-2">
+                                            <Folder
+                                                size={14}
+                                                className="shrink-0 text-accent"
+                                            />
+                                            <input
+                                                autoFocus
+                                                value={renaming.value}
+                                                onChange={(e) =>
+                                                    setRenaming({
+                                                        ...renaming,
+                                                        value: e.target.value,
+                                                    })
+                                                }
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter")
+                                                        void commitRename();
+                                                    else if (
+                                                        e.key === "Escape"
+                                                    )
+                                                        cancelRename();
+                                                }}
+                                                onBlur={() =>
+                                                    void commitRename()
+                                                }
+                                                spellCheck={false}
+                                                className="min-w-0 flex-1 rounded-md border border-accent bg-app px-2 py-0.5 font-mono text-xs text-primary outline-none"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => enter(entry)}
+                                            onContextMenu={(e) =>
+                                                openContextMenu(e, entry)
+                                            }
+                                            onKeyDown={(e) => {
+                                                if (e.key === "F2")
+                                                    startRename(entry);
+                                            }}
+                                            onFocus={() =>
+                                                setFocusedPath(entry.path)
+                                            }
+                                            onBlur={() => setFocusedPath(null)}
+                                            tabIndex={0}
+                                            title={entry.path}
+                                            className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-faint transition-colors hover:bg-surface hover:text-primary focus:bg-surface focus:text-primary focus:outline-none"
+                                        >
+                                            <Folder
+                                                size={14}
+                                                className="shrink-0 text-accent"
+                                            />
+                                            <span className="min-w-0 flex-1 truncate text-left font-mono text-xs">
+                                                {entry.name}
+                                            </span>
+                                            <ChevronRight
+                                                size={14}
+                                                className="shrink-0 text-faint transition-colors group-hover:text-secondary"
+                                            />
+                                        </button>
+                                    )}
                                 </li>
                             ) : (
                                 <li
                                     key={entry.path}
                                     className="group flex items-stretch rounded-xl border border-transparent transition-colors hover:border-line hover:bg-surface"
                                 >
-                                    <button
-                                        type="button"
-                                        onClick={() => open(entry)}
-                                        onContextMenu={(e) =>
-                                            openContextMenu(e, entry)
-                                        }
-                                        title={entry.path}
-                                        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2 text-left text-faint transition-colors hover:text-primary"
-                                    >
-                                        <FileText
-                                            size={14}
-                                            className="shrink-0 text-accent"
-                                        />
-                                        <span className="min-w-0 flex-1">
-                                            <span className="block truncate font-mono text-xs text-primary group-hover:text-accent">
-                                                {entry.name}
-                                            </span>
-                                            <span className="block text-[10px] text-faint">
-                                                {fmtBytes(entry.size)} ·
-                                                modified {fmtTime(entry.mtime)}
-                                            </span>
-                                        </span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        title="Delete file"
-                                        onClick={() => setPendingDelete(entry)}
-                                        className="my-auto mr-2 rounded-lg p-1.5 text-faint opacity-0 transition-all hover:bg-rose-500/10 hover:text-rose-500 group-hover:opacity-100"
-                                    >
-                                        <Trash2 size={13} />
-                                    </button>
+                                    {renaming?.entry.path === entry.path ? (
+                                        <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl bg-surface px-3 py-2">
+                                            <FileText
+                                                size={14}
+                                                className="shrink-0 text-accent"
+                                            />
+                                            <input
+                                                autoFocus
+                                                value={renaming.value}
+                                                onChange={(e) =>
+                                                    setRenaming({
+                                                        ...renaming,
+                                                        value: e.target.value,
+                                                    })
+                                                }
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter")
+                                                        void commitRename();
+                                                    else if (
+                                                        e.key === "Escape"
+                                                    )
+                                                        cancelRename();
+                                                }}
+                                                onBlur={() =>
+                                                    void commitRename()
+                                                }
+                                                spellCheck={false}
+                                                className="min-w-0 flex-1 rounded-md border border-accent bg-app px-2 py-0.5 font-mono text-xs text-primary outline-none"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={() => open(entry)}
+                                                onContextMenu={(e) =>
+                                                    openContextMenu(e, entry)
+                                                }
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "F2")
+                                                        startRename(entry);
+                                                }}
+                                                onFocus={() =>
+                                                    setFocusedPath(entry.path)
+                                                }
+                                                onBlur={() =>
+                                                    setFocusedPath(null)
+                                                }
+                                                tabIndex={0}
+                                                title={entry.path}
+                                                className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2 text-left text-faint transition-colors hover:text-primary focus:text-primary focus:outline-none"
+                                            >
+                                                <FileText
+                                                    size={14}
+                                                    className="shrink-0 text-accent"
+                                                />
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="block truncate font-mono text-xs text-primary group-hover:text-accent">
+                                                        {entry.name}
+                                                    </span>
+                                                    <span className="block text-[10px] text-faint">
+                                                        {fmtBytes(entry.size)} ·
+                                                        modified{" "}
+                                                        {fmtTime(entry.mtime)}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                title="Delete file"
+                                                onClick={() =>
+                                                    setPendingDelete(entry)
+                                                }
+                                                className="my-auto mr-2 rounded-lg p-1.5 text-faint opacity-0 transition-all hover:bg-rose-500/10 hover:text-rose-500 group-hover:opacity-100"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </>
+                                    )}
                                 </li>
                             ),
                         )}

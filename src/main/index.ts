@@ -986,6 +986,120 @@ if (!app.requestSingleInstanceLock()) {
             invalidateTools();
             return { ok: true };
         });
+
+        /**
+         * Renames a registered file within its parent folder.
+         * Rejects root config files. Validates the new name against
+         * DOS-reserved names and forbidden characters.
+         *
+         * @param rawPath - The current file path.
+         * @param newName - The desired new file name.
+         * @returns Result indicating success or the reason for failure.
+         */
+        safe(
+            "file:rename",
+            (rawPath: unknown, newName: unknown): OpResult => {
+                const src = assertRegistered(rawPath);
+                if (!fs.existsSync(src) || fs.statSync(src).isDirectory()) {
+                    return { ok: false, error: "File does not exist" };
+                }
+                if (registeredPaths(getTools()).has(normalizeKey(src))) {
+                    return {
+                        ok: false,
+                        error: "Root config files cannot be renamed here",
+                    };
+                }
+                const trimmed = typeof newName === "string" ? newName.trim() : "";
+                const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+                if (
+                    !trimmed ||
+                    !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
+                    trimmed === "." ||
+                    trimmed === ".." ||
+                    trimmed.startsWith(".") ||
+                    trimmed.endsWith(".") ||
+                    trimmed.endsWith(" ") ||
+                    reserved.test(trimmed)
+                ) {
+                    return { ok: false, error: "Invalid file name" };
+                }
+                const dst = path.join(path.dirname(src), trimmed);
+                if (normalizeKey(dst) === normalizeKey(src)) {
+                    return { ok: true };
+                }
+                if (fs.existsSync(dst)) {
+                    return {
+                        ok: false,
+                        error: "A file with this name already exists",
+                    };
+                }
+                const validatedDst = canonicalize(dst);
+                fs.renameSync(src, validatedDst);
+                invalidateTools();
+                return { ok: true };
+            },
+        );
+
+        /**
+         * Renames a subfolder within its parent registered folder.
+         * Rejects registered root folders. Validates the new name against
+         * DOS-reserved names and forbidden characters.
+         *
+         * @param rawFolder - The current folder path.
+         * @param newName - The desired new folder name.
+         * @returns Result indicating success or the reason for failure.
+         */
+        safe(
+            "folder:rename",
+            (rawFolder: unknown, newName: unknown): OpResult => {
+                const src = canonicalize(rawFolder);
+                const key = normalizeKey(src);
+                const tools = getTools();
+                const inside =
+                    registeredFolderRoots(tools).has(key) ||
+                    findContainingFolder(tools, src) !== undefined;
+                if (!inside) {
+                    return { ok: false, error: "Folder is not registered" };
+                }
+                if (registeredFolderRoots(tools).has(key)) {
+                    return {
+                        ok: false,
+                        error: "The root folder cannot be renamed here",
+                    };
+                }
+                if (!fs.existsSync(src) || !fs.statSync(src).isDirectory()) {
+                    return { ok: false, error: "Folder does not exist" };
+                }
+                const trimmed = typeof newName === "string" ? newName.trim() : "";
+                const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+                if (
+                    !trimmed ||
+                    !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
+                    trimmed === "." ||
+                    trimmed === ".." ||
+                    trimmed.startsWith(".") ||
+                    trimmed.endsWith(".") ||
+                    trimmed.endsWith(" ") ||
+                    reserved.test(trimmed)
+                ) {
+                    return { ok: false, error: "Invalid folder name" };
+                }
+                const dst = path.join(path.dirname(src), trimmed);
+                if (normalizeKey(dst) === normalizeKey(src)) {
+                    return { ok: true };
+                }
+                if (fs.existsSync(dst)) {
+                    return {
+                        ok: false,
+                        error: "A folder with this name already exists",
+                    };
+                }
+                const validatedDst = canonicalize(dst);
+                fs.renameSync(src, validatedDst);
+                invalidateTools();
+                return { ok: true };
+            },
+        );
     }
 
     void app
