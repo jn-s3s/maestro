@@ -18,6 +18,7 @@ import {
 import type { DirEntry, ToolFile, ToolFolder } from "../../../shared/types";
 import { useToast } from "./useToast";
 import ConfirmDialog from "./ConfirmDialog";
+import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import { fmtBytes, fmtTime, langFromPath } from "../lib/format";
 
 interface Props {
@@ -66,6 +67,11 @@ export default function FolderView({
     const [folderName, setFolderName] = useState("");
     const [pendingDelete, setPendingDelete] = useState<DirEntry | null>(null);
     const [confirmFolderDelete, setConfirmFolderDelete] = useState(false);
+    const [contextMenu, setContextMenu] = useState<{
+        x: number;
+        y: number;
+        items: ContextMenuItem[];
+    } | null>(null);
     const requestRef = useRef(0);
 
     const cwdPath = useMemo(
@@ -208,6 +214,33 @@ export default function FolderView({
         }
     };
 
+    const openContextMenu = (
+        e: React.MouseEvent,
+        entry: DirEntry,
+    ): void => {
+        e.preventDefault();
+        const items: ContextMenuItem[] = entry.isDir
+            ? [
+                  { label: "Open", onClick: () => enter(entry) },
+                  { label: "New file here", onClick: () => {} },
+                  { label: "New folder here", onClick: () => {} },
+                  {
+                      label: "Delete folder",
+                      danger: true,
+                      onClick: () => setPendingDelete(entry),
+                  },
+              ]
+            : [
+                  { label: "Open", onClick: () => open(entry) },
+                  {
+                      label: "Delete file",
+                      danger: true,
+                      onClick: () => setPendingDelete(entry),
+                  },
+              ];
+        setContextMenu({ x: e.clientX, y: e.clientY, items });
+    };
+
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center gap-2 px-4 py-2 border-b border-line bg-surface">
@@ -291,6 +324,9 @@ export default function FolderView({
                                     <button
                                         type="button"
                                         onClick={() => enter(entry)}
+                                        onContextMenu={(e) =>
+                                            openContextMenu(e, entry)
+                                        }
                                         title={entry.path}
                                         className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-faint transition-colors hover:bg-surface hover:text-primary"
                                     >
@@ -315,6 +351,9 @@ export default function FolderView({
                                     <button
                                         type="button"
                                         onClick={() => open(entry)}
+                                        onContextMenu={(e) =>
+                                            openContextMenu(e, entry)
+                                        }
                                         title={entry.path}
                                         className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2 text-left text-faint transition-colors hover:text-primary"
                                     >
@@ -418,6 +457,14 @@ export default function FolderView({
                     message={`Delete "${displayName}" and everything inside it? Everything will be sent to the Recycle Bin.`}
                     onConfirm={() => void performFolderDelete()}
                     onCancel={() => setConfirmFolderDelete(false)}
+                />
+            )}
+            {contextMenu && (
+                <ContextMenu
+                    x={contextMenu.x}
+                    y={contextMenu.y}
+                    items={contextMenu.items}
+                    onClose={() => setContextMenu(null)}
                 />
             )}
         </div>
