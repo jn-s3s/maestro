@@ -33,7 +33,7 @@ interface Props {
  * Drill-down file browser for a registered tool folder.
  *
  * Shows the direct children of the current directory only. Clicking a folder
- * navigates into it and the new-file box creates files in the current directory.
+ * navigates into it and the new-item boxes create files and folders in the current directory.
  *
  * @param folder - The registered folder to browse.
  * @param reloadKey - Value that triggers a fresh listing when it changes.
@@ -63,6 +63,7 @@ export default function FolderView({
         parentHistory(initialDir),
     );
     const [name, setName] = useState("");
+    const [folderName, setFolderName] = useState("");
     const [pendingDelete, setPendingDelete] = useState<DirEntry | null>(null);
     const [confirmFolderDelete, setConfirmFolderDelete] = useState(false);
     const requestRef = useRef(0);
@@ -144,6 +145,24 @@ export default function FolderView({
             }
             setName("");
             toast.success(`Created ${trimmed}`);
+            load(cwdPath);
+            onMutated?.();
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        }
+    };
+
+    const createFolder = async (): Promise<void> => {
+        const trimmed = folderName.trim();
+        if (!trimmed) return;
+        try {
+            const res = await window.api.createFolderIn(cwdPath, trimmed);
+            if (!res.ok) {
+                toast.error(res.error ?? "Failed to create folder");
+                return;
+            }
+            setFolderName("");
+            toast.success(`Created folder ${trimmed}`);
             load(cwdPath);
             onMutated?.();
         } catch (err) {
@@ -352,6 +371,31 @@ export default function FolderView({
                         type="button"
                         onClick={() => void create()}
                         disabled={!name.trim()}
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-medium text-white bg-accent transition-colors hover:bg-accent2 disabled:pointer-events-none disabled:opacity-40"
+                    >
+                        <Plus size={13} />
+                        Create
+                    </button>
+                </div>
+                <label className="mt-3 mb-1.5 block text-xs font-medium text-secondary">
+                    New folder in {folder.label}
+                    {cwdRel ? ` / ${cwdRel}` : ""}
+                </label>
+                <div className="flex gap-2">
+                    <input
+                        value={folderName}
+                        onChange={(e) => setFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") void createFolder();
+                        }}
+                        placeholder="my-folder"
+                        spellCheck={false}
+                        className="min-w-0 flex-1 rounded-xl px-3 py-2 font-mono text-xs text-primary border border-line bg-app outline-none transition-colors placeholder:text-faint focus:border-accent"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => void createFolder()}
+                        disabled={!folderName.trim()}
                         className="inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-medium text-white bg-accent transition-colors hover:bg-accent2 disabled:pointer-events-none disabled:opacity-40"
                     >
                         <Plus size={13} />

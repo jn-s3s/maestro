@@ -144,6 +144,7 @@ export interface Api {
     onFileChanged(cb: (path: string) => void): () => void;
     listFolder(path: string): Promise<{ entries: DirEntry[]; exists: boolean }>;
     createFileIn(folderPath: string, name: string): Promise<OpResult>;
+    createFolderIn(folderPath: string, name: string): Promise<OpResult>;
     deleteFile(path: string): Promise<OpResult>;
     deleteFolder(path: string): Promise<OpResult>;
     onThemeChanged(cb: (dark: boolean) => void): () => void;

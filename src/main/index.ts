@@ -886,6 +886,39 @@ if (!app.requestSingleInstanceLock()) {
             },
         );
 
+        safe(
+            "folder:create-folder",
+            (rawFolder: unknown, name: unknown): OpResult => {
+                const root = assertInsideFolder(rawFolder);
+                const trimmed = typeof name === "string" ? name.trim() : "";
+                const reserved =
+                    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+                if (
+                    !trimmed ||
+                    !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
+                    trimmed === "." ||
+                    trimmed === ".." ||
+                    trimmed.startsWith(".") ||
+                    trimmed.endsWith(".") ||
+                    trimmed.endsWith(" ") ||
+                    reserved.test(trimmed)
+                ) {
+                    return { ok: false, error: "Invalid folder name" };
+                }
+                fs.mkdirSync(root, { recursive: true });
+                const target = path.join(root, trimmed);
+                if (fs.existsSync(target)) {
+                    return {
+                        ok: false,
+                        error: "A folder with this name already exists",
+                    };
+                }
+                fs.mkdirSync(target, { recursive: false });
+                invalidateTools();
+                return { ok: true };
+            },
+        );
+
         safe("folder:delete", (rawFolder: unknown): OpResult => {
             const p = canonicalize(rawFolder);
             const key = normalizeKey(p);

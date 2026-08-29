@@ -57,6 +57,8 @@ const api: Api = {
     listFolder: (folderPath) => ipcRenderer.invoke("folder:list", folderPath),
     createFileIn: (folderPath, name) =>
         ipcRenderer.invoke("folder:create-file", folderPath, name),
+    createFolderIn: (folderPath, name) =>
+        ipcRenderer.invoke("folder:create-folder", folderPath, name),
     deleteFile: (filePath) => ipcRenderer.invoke("file:delete", filePath),
     deleteFolder: (folderPath) =>
         ipcRenderer.invoke("folder:delete", folderPath),
