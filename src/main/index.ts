@@ -3,6 +3,7 @@ import {
     shell,
     BrowserWindow,
     ipcMain,
+    screen,
     Tray,
     Menu,
     nativeImage,
@@ -130,11 +131,15 @@ if (!app.requestSingleInstanceLock()) {
      */
     function createWindow(): void {
         const dark = nativeTheme.shouldUseDarkColors;
+        const workArea = screen.getPrimaryDisplay().workArea;
+        const targetWidth = Math.min(1240, workArea.width - 24);
+        const targetHeight = Math.min(820, workArea.height - 24);
         mainWindow = new BrowserWindow({
-            width: 1280,
-            height: 860,
+            width: targetWidth,
+            height: targetHeight,
             minWidth: 1000,
-            minHeight: 640,
+            minHeight: 600,
+            maxHeight: workArea.height,
             show: false,
             autoHideMenuBar: true,
             backgroundColor: dark ? "#09090b" : "#fafafa",
