@@ -475,9 +475,9 @@ if (!app.requestSingleInstanceLock()) {
 
     /**
      * Resolves symlinks via the nearest existing ancestor so a symlink
-     * planted under a registered root cannot point outside it. When the
-     * trailing components do not yet exist, the existing ancestor must
-     * itself be inside the registered region before the result is trusted.
+     * planted under a registered root cannot point outside it. The final
+     * reconstructed path is then re-checked against the registered regions
+     * to reject any escape that walked past realpath via missing segments.
      *
      * @param raw - The unvalidated path from the IPC channel.
      * @returns The canonicalized path.
@@ -489,23 +489,18 @@ if (!app.requestSingleInstanceLock()) {
         }
         const resolved = path.resolve(raw.trim());
         let probe = resolved;
-        let walked = false;
         while (!fs.existsSync(probe)) {
             const parent = path.dirname(probe);
             if (parent === probe) {
                 throw new Error("Invalid path");
             }
             probe = parent;
-            walked = true;
         }
         let realProbe: string;
         try {
             realProbe = fs.realpathSync(probe);
         } catch {
             throw new Error("Invalid path");
-        }
-        if (walked && !isWithinRegistered(getTools(), realProbe)) {
-            throw new Error("Path is not a registered config file");
         }
         const reconstructed = path.join(realProbe, path.relative(probe, resolved));
         if (!isWithinRegistered(getTools(), reconstructed)) {
@@ -803,13 +798,11 @@ if (!app.requestSingleInstanceLock()) {
         });
 
         safe("backups:read", (rawPath: unknown): { content: string } => {
-            const filePath = assertRegistered(rawPath);
-            return { content: readBackupFile(filePath) };
+            return { content: readBackupFile(rawPath) };
         });
 
         safe("backups:delete", (rawPath: unknown): OpResult => {
-            const filePath = assertRegistered(rawPath);
-            deleteBackupFile(filePath);
+            deleteBackupFile(rawPath);
             return { ok: true };
         });
 
