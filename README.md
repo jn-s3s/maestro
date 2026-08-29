@@ -1,7 +1,7 @@
 # Maestro
 
 <p align="center">
-  <img src="resources/icon.png" width="96" alt="Maestro icon">
+  <img src="resources/icon-source.png" width="96" alt="Maestro icon">
 </p>
 
 Conduct all your AI coding agent configurations from one podium.
