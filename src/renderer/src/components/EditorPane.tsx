@@ -13,6 +13,7 @@ import {
     RefreshCw,
     RotateCcw,
     Save,
+    Trash2,
     TriangleAlert,
     Info,
 } from "lucide-react";
@@ -70,6 +71,7 @@ interface Props {
     fileMtime?: number;
     onHistoryClick?: () => void;
     onReloadClick?: () => void;
+    onDelete?: () => void;
 }
 
 const iconBtn =
@@ -244,6 +246,16 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                     >
                         <RotateCcw size={15} />
                     </button>
+                    {props.onDelete && (
+                        <button
+                            type="button"
+                            title="Delete file"
+                            onClick={() => props.onDelete?.()}
+                            className={`${iconBtn} hover:bg-rose-500/10 hover:text-rose-500`}
+                        >
+                            <Trash2 size={15} />
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={() => saveRef.current()}

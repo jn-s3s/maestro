@@ -17,6 +17,7 @@ import ThemeSwitch from "./components/ThemeSwitch";
 import FolderView from "./components/FolderView";
 import { ToastProvider } from "./components/Toasts";
 import { useToast } from "./components/useToast";
+import ConfirmDialog from "./components/ConfirmDialog";
 import { ThemeProvider } from "./theme";
 import { useThemeMode } from "./theme-context";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -64,6 +65,7 @@ function AppContent(): JSX.Element {
     const [folderNonce, setFolderNonce] = useState(0);
     const [modal, setModal] = useState<ModalKind>(null);
     const [external, setExternal] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(false);
     const editorRef = useRef<EditorHandle | null>(null);
     const savingRef = useRef(false);
     const dirtyRef = useRef(false);
@@ -176,6 +178,30 @@ function AppContent(): JSX.Element {
         setExternal(false);
         setSelFolder(sel.selFolderRef);
     }, [sel, clearDirty]);
+
+    /**
+     * Deletes the currently selected file after confirmation.
+     * On success, clears the editor and bumps the folder nonce so the sidebar refreshes.
+     */
+    const performEditorDelete = useCallback(async (): Promise<void> => {
+        setConfirmDelete(false);
+        const cur = selRef.current;
+        if (!cur) return;
+        try {
+            const res = await window.api.deleteFile(cur.file.path);
+            if (res.ok) {
+                toast.info(`Deleted ${cur.file.label}`);
+                setSel(null);
+                clearDirty();
+                setExternal(false);
+                setFolderNonce((n) => n + 1);
+            } else {
+                toast.error(res.error ?? "Failed to delete");
+            }
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        }
+    }, [clearDirty, toast]);
 
     /**
      * Opens a config file in the editor and pushes it to recents.
@@ -395,6 +421,7 @@ function AppContent(): JSX.Element {
                             fileMtime={sel.mtime}
                             onHistoryClick={() => setModal("history")}
                             onReloadClick={() => handleRevert()}
+                            onDelete={() => setConfirmDelete(true)}
                         />
                     ) : selFolder ? (
                         <FolderView
@@ -488,6 +515,15 @@ function AppContent(): JSX.Element {
                         )
                     )}
                 </Suspense>
+            )}
+
+            {confirmDelete && sel && (
+                <ConfirmDialog
+                    title="Delete file"
+                    message={`Delete "${sel.file.label}"? A backup will be saved before deletion. This cannot be undone.`}
+                    onConfirm={() => void performEditorDelete()}
+                    onCancel={() => setConfirmDelete(false)}
+                />
             )}
         </div>
     );
