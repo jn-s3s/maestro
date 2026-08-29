@@ -1,7 +1,11 @@
 import { useEffect, useRef, type JSX } from "react";
 import { createPortal } from "react-dom";
 
+/**
+ * Represents a single item rendered in a context menu.
+ */
 export interface ContextMenuItem {
+    id?: string;
     label: string;
     onClick: () => void;
     danger?: boolean;
@@ -65,7 +69,7 @@ export default function ContextMenu({
         >
             {items.map((item, i) => (
                 <button
-                    key={i}
+                    key={item.id ?? `ctx-item-${i}`}
                     type="button"
                     role="menuitem"
                     disabled={item.disabled}

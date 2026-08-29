@@ -33,6 +33,7 @@ import type { FileLang } from "../../../shared/types";
 import { fmtBytes, fmtTime, LANG_LABELS } from "../lib/format";
 import { editorTheme } from "./editor/themes";
 import { toml } from "./editor/toml";
+import { useToast } from "./useToast";
 
 /**
  * JSONC support that layers line-comment language data on top of the JSON language.
@@ -108,6 +109,7 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
     const [themeComp] = useState(() => new Compartment());
+    const toast = useToast();
     const saveRef = useRef(props.onSave);
 
     useEffect(() => {
@@ -225,13 +227,13 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                         disabled={!props.fileExists}
                         onClick={() =>
                             props.filePath &&
-                            window.api
-                                .openExternal(props.filePath)
-                                .then((r) => {
+                            window.api.openExternal(props.filePath).then(
+                                (r) => {
                                     if (!r.ok && r.error) {
-                                        /* intentionally swallowed */
+                                        toast.error(r.error);
                                     }
-                                })
+                                },
+                            )
                         }
                         className={iconBtn}
                     >

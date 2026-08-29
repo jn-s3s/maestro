@@ -15,13 +15,11 @@ interface Props {
 export function ThemeProvider({ initial, children }: Props): JSX.Element {
     const [mode, setMode] = useState<Resolved>(initial);
 
-    useEffect(
-        () =>
-            window.api.onThemeChanged((dark) => {
-                setMode(dark ? "dark" : "light");
-            }),
-        [],
-    );
+    useEffect(() => {
+        return window.api.onThemeChanged((dark) => {
+            setMode(dark ? "dark" : "light");
+        });
+    }, []);
 
     useEffect(() => {
         document.documentElement.classList.toggle("dark", mode === "dark");

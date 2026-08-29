@@ -228,20 +228,42 @@ export default function FolderView({
         e.preventDefault();
         const items: ContextMenuItem[] = entry.isDir
             ? [
-                  { label: "Open", onClick: () => enter(entry) },
-                  { label: "Rename", onClick: () => startRename(entry) },
-                  { label: "New file here", onClick: () => {} },
-                  { label: "New folder here", onClick: () => {} },
+                  { id: "open", label: "Open", onClick: () => enter(entry) },
                   {
+                      id: "rename",
+                      label: "Rename",
+                      onClick: () => startRename(entry),
+                  },
+                  {
+                      id: "new-file",
+                      label: "New file here",
+                      onClick: () => {
+                          enter(entry);
+                      },
+                  },
+                  {
+                      id: "new-folder",
+                      label: "New folder here",
+                      onClick: () => {
+                          enter(entry);
+                      },
+                  },
+                  {
+                      id: "delete-folder",
                       label: "Delete folder",
                       danger: true,
                       onClick: () => setPendingDelete(entry),
                   },
               ]
             : [
-                  { label: "Open", onClick: () => open(entry) },
-                  { label: "Rename", onClick: () => startRename(entry) },
+                  { id: "open", label: "Open", onClick: () => open(entry) },
                   {
+                      id: "rename",
+                      label: "Rename",
+                      onClick: () => startRename(entry),
+                  },
+                  {
+                      id: "delete-file",
                       label: "Delete file",
                       danger: true,
                       onClick: () => setPendingDelete(entry),
@@ -373,7 +395,13 @@ export default function FolderView({
                     >
                         {entries.map((entry) =>
                             entry.isDir ? (
-                                <li key={entry.path}>
+                                <li
+                                    key={
+                                        renaming?.entry.path === entry.path
+                                            ? `renaming-${entry.path}`
+                                            : entry.path
+                                    }
+                                >
                                     {renaming?.entry.path === entry.path ? (
                                         <div className="flex items-center gap-3 rounded-xl bg-surface px-3 py-2">
                                             <Folder
@@ -439,7 +467,11 @@ export default function FolderView({
                                 </li>
                             ) : (
                                 <li
-                                    key={entry.path}
+                                    key={
+                                        renaming?.entry.path === entry.path
+                                            ? `renaming-${entry.path}`
+                                            : entry.path
+                                    }
                                     className="group flex items-stretch rounded-xl border border-transparent transition-colors hover:border-line hover:bg-surface"
                                 >
                                     {renaming?.entry.path === entry.path ? (

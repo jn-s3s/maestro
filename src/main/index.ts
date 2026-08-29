@@ -444,13 +444,13 @@ if (!app.requestSingleInstanceLock()) {
             try {
                 return await fn(...args);
             } catch (err) {
-                logError(
-                    channel,
-                    err instanceof Error
-                        ? (err.stack ?? err.message)
-                        : String(err),
-                );
-                throw err instanceof Error ? err : new Error(String(err));
+                const message =
+                    err instanceof Error ? err.message : String(err);
+                logError(channel, err instanceof Error ? (err.stack ?? message) : message);
+                // Sanitize the rethrow so the renderer only sees the message.
+                // Full stack is captured in the log above.
+                // eslint-disable-next-line preserve-caught-error
+                throw new Error(message);
             }
         });
     }
