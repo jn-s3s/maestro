@@ -1,0 +1,54 @@
+name: Bug report
+description: Report something broken or unexpected in Maestro
+labels:
+  - bug
+  - triage
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug. Please fill out the details below so it can be reproduced quickly.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Maestro
+        2. Click ...
+        3. See error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Maestro version
+      description: The portable exe filename includes the version, for example Maestro-Portable-1.0.0.exe
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows version, and which tool config was involved if relevant (OpenCode, Aider, Claude Code, ...)
+      placeholder: Windows 11 24H2, OpenCode config editing
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Attach anything that helps. Redact any API keys or tokens before pasting logs.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues and did not find a duplicate
+          required: true
+        - label: I removed all secrets, tokens and API keys from the attached material
+          required: true

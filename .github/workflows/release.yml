@@ -1,0 +1,46 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*"
+
+permissions:
+    contents: write
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    release:
+        name: Build and publish
+        runs-on: windows-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v6
+
+            - name: Setup Node
+              uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build
+              run: pnpm build
+
+            - name: Generate icons
+              run: pnpm icon
+
+            # electron-builder creates a draft GitHub release for the tag and
+            # attaches the portable exe; publish it from the releases page.
+            - name: Package and publish
+              run: pnpm exec electron-builder --publish always
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
