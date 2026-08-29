@@ -51,6 +51,9 @@ const RELOAD_NOTE =
 /**
  * Builds the registry of known AI tool configs and extension folders.
  *
+ * Synthesises a "Root folder" entry from each tool's `rootPath` and prepends
+ * it to the tool's `folders` array. Tools without `rootPath` are left unchanged.
+ *
  * @param settings - Settings that carry the custom entries to include.
  * @returns The complete list of detected tools.
  */
@@ -63,6 +66,7 @@ export function detectTools(settings: AppSettings): Tool[] {
         name: "OpenCode",
         group: "cli",
         subtitle: "~\\.config\\opencode",
+        rootPath: opencodeDir,
         files: [
             makeFile(
                 "opencode/opencode.json",
@@ -121,6 +125,7 @@ export function detectTools(settings: AppSettings): Tool[] {
         name: "Claude Code",
         group: "cli",
         subtitle: "~\\.claude",
+        rootPath: claudeDir,
         files: [
             makeFile(
                 "claude-code/settings.json",
@@ -161,6 +166,7 @@ export function detectTools(settings: AppSettings): Tool[] {
         name: "Gemini CLI",
         group: "cli",
         subtitle: "~\\.gemini",
+        rootPath: path.join(HOME, ".gemini"),
         files: [
             makeFile(
                 "gemini-cli/settings.json",
@@ -187,6 +193,7 @@ export function detectTools(settings: AppSettings): Tool[] {
         name: "Codex CLI",
         group: "cli",
         subtitle: "~\\.codex",
+        rootPath: path.join(HOME, ".codex"),
         files: [
             makeFile(
                 "codex/config.toml",
@@ -217,6 +224,7 @@ export function detectTools(settings: AppSettings): Tool[] {
         name: "Continue",
         group: "ext",
         subtitle: "~\\.continue",
+        rootPath: path.join(HOME, ".continue"),
         files: [
             makeFile(
                 "continue/config.yaml",
@@ -248,6 +256,7 @@ export function detectTools(settings: AppSettings): Tool[] {
             name: f.name,
             group: "editor",
             subtitle: `%APPDATA%\\${f.dirName}\\User`,
+            rootPath: userDir,
             files: [
                 makeFile(
                     `vscode-${f.id}/settings.json`,
@@ -295,6 +304,7 @@ export function detectTools(settings: AppSettings): Tool[] {
                 name: e.name,
                 group: "ext",
                 subtitle: `${f.name} · ${e.folder}`,
+                rootPath: extDir,
                 files: [
                     makeFile(
                         `${e.id}-${f.id}/${path.basename(e.file)}`,
@@ -340,6 +350,16 @@ export function detectTools(settings: AppSettings): Tool[] {
                 ],
             });
         }
+    }
+
+    for (const t of tools) {
+        if (!t.rootPath) continue;
+        const rootFolder: ToolFolder = makeFolder(
+            `${t.id}/folder-root`,
+            "Root folder",
+            t.rootPath,
+        );
+        t.folders = [rootFolder, ...(t.folders ?? [])];
     }
 
     return tools;

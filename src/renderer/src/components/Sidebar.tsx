@@ -119,26 +119,74 @@ const ToolBlock = memo(function ToolBlock({
         tool.files.filter((f) => f.exists).length +
         (tool.folders ?? []).filter((f) => f.exists).length;
     const total = tool.files.length + (tool.folders ?? []).length;
-    const folders = tool.folders ?? [];
+    const rootFolder = (tool.folders ?? []).find(
+        (f) => f.id === `${tool.id}/folder-root`,
+    );
+    const subFolders = (tool.folders ?? []).filter(
+        (f) => f.id !== `${tool.id}/folder-root`,
+    );
     return (
         <div>
-            <button
-                type="button"
-                className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-raised"
-                onClick={onToggle}
-            >
-                {open ? (
-                    <ChevronDown size={13} className="text-faint" />
+            <div className="flex w-full items-center gap-1 rounded-lg transition-colors hover:bg-raised">
+                {rootFolder ? (
+                    <button
+                        type="button"
+                        title={rootFolder.path}
+                        className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                            rootFolder.id === selectedFolderId
+                                ? "bg-accentsoft ring-1 ring-accent/30 ring-inset"
+                                : ""
+                        }`}
+                        onClick={() => onSelectFolder(tool, rootFolder)}
+                    >
+                        <Folder
+                            size={11}
+                            className={`shrink-0 ${rootFolder.exists ? "text-violet-400" : "text-line2"}`}
+                            fill="currentColor"
+                            strokeWidth={0}
+                        />
+                        <span
+                            className={`truncate text-[13px] font-medium ${
+                                rootFolder.id === selectedFolderId
+                                    ? "text-primary"
+                                    : "text-secondary"
+                            }`}
+                        >
+                            {tool.name}
+                        </span>
+                        <span className="ml-auto shrink-0 text-[10px] text-faint">
+                            {existing}/{total}
+                        </span>
+                    </button>
                 ) : (
-                    <ChevronRight size={13} className="text-faint" />
+                    <button
+                        type="button"
+                        className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-left transition-colors"
+                        onClick={onToggle}
+                    >
+                        <span className="truncate text-[13px] font-medium text-primary">
+                            {tool.name}
+                        </span>
+                        <span className="ml-auto shrink-0 text-[10px] text-faint">
+                            {existing}/{total}
+                        </span>
+                    </button>
                 )}
-                <span className="truncate text-[13px] font-medium text-primary">
-                    {tool.name}
-                </span>
-                <span className="ml-auto shrink-0 text-[10px] text-faint">
-                    {existing}/{total}
-                </span>
-            </button>
+                {(tool.files.length > 0 || subFolders.length > 0) && (
+                    <button
+                        type="button"
+                        title={open ? "Hide details" : "Show details"}
+                        onClick={onToggle}
+                        className="shrink-0 rounded-md p-1 text-faint transition-colors hover:bg-raised hover:text-primary"
+                    >
+                        {open ? (
+                            <ChevronDown size={13} />
+                        ) : (
+                            <ChevronRight size={13} />
+                        )}
+                    </button>
+                )}
+            </div>
             {open && (
                 <ul className="mt-0.5 space-y-0.5 pl-3">
                     {tool.files.map((file) => (
@@ -150,7 +198,7 @@ const ToolBlock = memo(function ToolBlock({
                             />
                         </li>
                     ))}
-                    {folders.map((folder) => (
+                    {subFolders.map((folder) => (
                         <li key={folder.id}>
                             <FolderRow
                                 folder={folder}

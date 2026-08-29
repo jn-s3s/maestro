@@ -42,6 +42,7 @@ export interface Tool {
     name: string;
     group: ToolGroup;
     subtitle?: string;
+    rootPath?: string;
     files: ToolFile[];
     folders?: ToolFolder[];
 }
