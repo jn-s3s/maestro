@@ -407,7 +407,7 @@ export default function FolderView({
             {pendingDelete && (
                 <ConfirmDialog
                     title="Delete file"
-                    message={`Delete "${pendingDelete.name}"? Its backup history will be removed too. This cannot be undone.`}
+                    message={`Delete "${pendingDelete.name}"? It will be sent to the Recycle Bin.`}
                     onConfirm={() => void performDelete()}
                     onCancel={() => setPendingDelete(null)}
                 />
@@ -415,7 +415,7 @@ export default function FolderView({
             {confirmFolderDelete && (
                 <ConfirmDialog
                     title="Delete folder"
-                    message={`Delete "${displayName}" and everything inside it? Its backup history will be removed too. This cannot be undone.`}
+                    message={`Delete "${displayName}" and everything inside it? Everything will be sent to the Recycle Bin.`}
                     onConfirm={() => void performFolderDelete()}
                     onCancel={() => setConfirmFolderDelete(false)}
                 />

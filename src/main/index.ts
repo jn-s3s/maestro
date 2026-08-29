@@ -23,7 +23,6 @@ import {
 } from "./registry";
 import {
     BACKUPS_ROOT,
-    backupDirForFile,
     backupFile,
     loadSettings,
     logError,
@@ -32,7 +31,6 @@ import {
 } from "./store";
 import {
     clearBackupsForFile,
-    clearBackupsForFolder,
     deleteBackupFile,
     listBackupsForFile,
     readBackupFile,
@@ -919,7 +917,7 @@ if (!app.requestSingleInstanceLock()) {
             },
         );
 
-        safe("folder:delete", (rawFolder: unknown): OpResult => {
+        safe("folder:delete", async (rawFolder: unknown): Promise<OpResult> => {
             const p = canonicalize(rawFolder);
             const key = normalizeKey(p);
             const tools = getTools();
@@ -965,20 +963,12 @@ if (!app.requestSingleInstanceLock()) {
                     };
                 }
             }
-            fs.rmSync(p, { recursive: true, force: true });
-            try {
-                clearBackupsForFolder(p);
-            } catch (err) {
-                logError(
-                    "folder:delete-backup-cleanup",
-                    err instanceof Error ? err.message : String(err),
-                );
-            }
+            await shell.trashItem(p);
             invalidateTools();
             return { ok: true };
         });
 
-        safe("file:delete", (rawPath: unknown): OpResult => {
+        safe("file:delete", async (rawPath: unknown): Promise<OpResult> => {
             const p = assertRegistered(rawPath);
             if (!fs.existsSync(p)) {
                 return { ok: false, error: "File does not exist" };
@@ -992,18 +982,7 @@ if (!app.requestSingleInstanceLock()) {
                     error: "Root config files cannot be deleted here",
                 };
             }
-            fs.unlinkSync(p);
-            try {
-                fs.rmSync(backupDirForFile(p), {
-                    recursive: true,
-                    force: true,
-                });
-            } catch (err) {
-                logError(
-                    "file:delete-backup-cleanup",
-                    err instanceof Error ? err.message : String(err),
-                );
-            }
+            await shell.trashItem(p);
             invalidateTools();
             return { ok: true };
         });

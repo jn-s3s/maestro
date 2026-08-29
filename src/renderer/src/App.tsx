@@ -195,6 +195,9 @@ function AppContent(): JSX.Element {
                 clearDirty();
                 setExternal(false);
                 setFolderNonce((n) => n + 1);
+                if (cur.selFolderRef) {
+                    setSelFolder(cur.selFolderRef);
+                }
             } else {
                 toast.error(res.error ?? "Failed to delete");
             }
@@ -520,7 +523,7 @@ function AppContent(): JSX.Element {
             {confirmDelete && sel && (
                 <ConfirmDialog
                     title="Delete file"
-                    message={`Delete "${sel.file.label}"? A backup will be saved before deletion. This cannot be undone.`}
+                    message={`Delete "${sel.file.label}"? It will be sent to the Recycle Bin.`}
                     onConfirm={() => void performEditorDelete()}
                     onCancel={() => setConfirmDelete(false)}
                 />
