@@ -186,7 +186,9 @@ export default function FolderView({
         setPendingDelete(null);
         if (!entry) return;
         try {
-            const res = await window.api.deleteFile(entry.path);
+            const res = entry.isDir
+                ? await window.api.deleteFolder(entry.path)
+                : await window.api.deleteFile(entry.path);
             if (res.ok) {
                 toast.info(`Deleted ${entry.name}`);
                 load(cwdPath);
