@@ -18,3 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - System, light and dark themes with a hide tools list for unused entries
 - Secret file flagging for configs containing tokens and API keys
 - Windows portable executable distribution
+
+## [1.0.1] - 2026-09-02
+
+### Fixed
+
+- OpenCode plugins folder now detects the correct `plugins` directory instead of the non-existent `plugin` folder
+
+### Changed
+
+- Folder labels in the tools list are lowercase to match the detected folder names
