@@ -85,18 +85,18 @@ export function detectTools(settings: AppSettings): Tool[] {
         folders: [
             makeFolder(
                 "opencode/folder-command",
-                "Commands",
+                "commands",
                 path.join(opencodeDir, "command"),
             ),
             makeFolder(
                 "opencode/folder-agents",
-                "Agents",
+                "agents",
                 path.join(opencodeDir, "agents"),
             ),
             makeFolder(
-                "opencode/folder-plugin",
-                "Plugins",
-                path.join(opencodeDir, "plugin"),
+                "opencode/folder-plugins",
+                "plugins",
+                path.join(opencodeDir, "plugins"),
             ),
         ],
     });
@@ -145,17 +145,17 @@ export function detectTools(settings: AppSettings): Tool[] {
         folders: [
             makeFolder(
                 "claude-code/folder-commands",
-                "Commands",
+                "commands",
                 path.join(claudeDir, "commands"),
             ),
             makeFolder(
                 "claude-code/folder-agents",
-                "Agents",
+                "agents",
                 path.join(claudeDir, "agents"),
             ),
             makeFolder(
                 "claude-code/folder-skills",
-                "Skills",
+                "skills",
                 path.join(claudeDir, "skills"),
             ),
         ],
@@ -182,7 +182,7 @@ export function detectTools(settings: AppSettings): Tool[] {
         folders: [
             makeFolder(
                 "gemini-cli/folder-commands",
-                "Commands",
+                "commands",
                 path.join(HOME, ".gemini", "commands"),
             ),
         ],
@@ -213,7 +213,7 @@ export function detectTools(settings: AppSettings): Tool[] {
         folders: [
             makeFolder(
                 "codex/folder-prompts",
-                "Prompts",
+                "prompts",
                 path.join(HOME, ".codex", "prompts"),
             ),
         ],
