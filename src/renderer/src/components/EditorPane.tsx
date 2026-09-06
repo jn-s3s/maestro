@@ -232,8 +232,7 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                                     if (!r.ok && r.error) {
                                         toast.error(r.error);
                                     }
-                                },
-                            )
+                            })
                         }
                         className={iconBtn}
                     >

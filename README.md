@@ -15,17 +15,17 @@ Maestro is a Windows desktop app that detects config files and folders for popul
 
 ## Supported tools out of the box
 
-| Tool | What Maestro manages |
-| --- | --- |
-| OpenCode | `opencode.json` / `opencode.jsonc`, commands, agents and plugins folders |
-| Aider | `.aider.conf.yml` and `~/.env` API keys |
-| Claude Code | `settings.json`, `.claude.json`, commands, agents and skills folders |
-| Gemini CLI | `settings.json`, `GEMINI.md`, commands folder |
-| Codex CLI | `config.toml`, `auth.json`, prompts folder |
-| Continue | `config.yaml` plus legacy `config.json` |
-| VS Code / Insiders / VSCodium | User `settings.json` for each installed flavor |
-| Cline / Roo Code / Kilo Code | MCP settings per VS Code flavor |
-| Custom entries | Any file or folder you register yourself |
+| Tool                          | What Maestro manages                                                     |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| OpenCode                      | `opencode.json` / `opencode.jsonc`, commands, agents and plugins folders |
+| Aider                         | `.aider.conf.yml` and `~/.env` API keys                                  |
+| Claude Code                   | `settings.json`, `.claude.json`, commands, agents and skills folders     |
+| Gemini CLI                    | `settings.json`, `GEMINI.md`, commands folder                            |
+| Codex CLI                     | `config.toml`, `auth.json`, prompts folder                               |
+| Continue                      | `config.yaml` plus legacy `config.json`                                  |
+| VS Code / Insiders / VSCodium | User `settings.json` for each installed flavor                           |
+| Cline / Roo Code / Kilo Code  | MCP settings per VS Code flavor                                          |
+| Custom entries                | Any file or folder you register yourself                                 |
 
 ## Features
 
@@ -70,16 +70,16 @@ pnpm install
 pnpm dev
 ```
 
-| Command | Description |
-| --- | --- |
-| `pnpm dev` | Start Electron in development mode with hot reload |
-| `pnpm build` | Production build to `out/` |
-| `pnpm icon` | Regenerate runtime icon assets from `resources/icon-source.png` |
-| `pnpm typecheck` | Typecheck main/preload/shared and renderer projects |
-| `pnpm lint` | Lint the repo with ESLint |
-| `pnpm logs` | Print the main process log plus the settings path and the full backup tree |
-| `pnpm clear` | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
-| `pnpm dist` | Regenerate icons, build and package into `release/` |
+| Command          | Description                                                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`       | Start Electron in development mode with hot reload                                                                                     |
+| `pnpm build`     | Production build to `out/`                                                                                                             |
+| `pnpm icon`      | Regenerate runtime icon assets from `resources/icon-source.png`                                                                        |
+| `pnpm typecheck` | Typecheck main/preload/shared and renderer projects                                                                                    |
+| `pnpm lint`      | Lint the repo with ESLint                                                                                                              |
+| `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
+| `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
+| `pnpm dist`      | Regenerate icons, build and package into `release/`                                                                                    |
 
 ### Project structure
 

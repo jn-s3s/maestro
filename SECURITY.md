@@ -6,10 +6,10 @@ Thank you for helping keep Maestro and its users safe.
 
 Only the latest release receives security fixes. If you are running an older build, please update before reporting an issue.
 
-| Version | Supported |
-| --- | --- |
-| Latest release | Yes |
-| Older releases | No |
+| Version        | Supported |
+| -------------- | --------- |
+| Latest release | Yes       |
+| Older releases | No        |
 
 ## How to report a vulnerability
 

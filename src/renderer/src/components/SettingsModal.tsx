@@ -121,8 +121,8 @@ export default function SettingsModal({
                                     Minimize to tray
                                 </span>
                                 <span className="block text-xs text-faint">
-                                    Closing the window keeps the app running in
-                                    the tray
+                                        Closing the window keeps the app running
+                                        in the tray
                                 </span>
                             </span>
                             <input

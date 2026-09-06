@@ -446,7 +446,10 @@ if (!app.requestSingleInstanceLock()) {
             } catch (err) {
                 const message =
                     err instanceof Error ? err.message : String(err);
-                logError(channel, err instanceof Error ? (err.stack ?? message) : message);
+                logError(
+                    channel,
+                    err instanceof Error ? (err.stack ?? message) : message,
+                );
                 // Sanitize the rethrow so the renderer only sees the message.
                 // Full stack is captured in the log above.
                 // eslint-disable-next-line preserve-caught-error
@@ -505,7 +508,10 @@ if (!app.requestSingleInstanceLock()) {
         } catch {
             throw new Error("Invalid path");
         }
-        const reconstructed = path.join(realProbe, path.relative(probe, resolved));
+        const reconstructed = path.join(
+            realProbe,
+            path.relative(probe, resolved),
+        );
         if (!isWithinRegistered(getTools(), reconstructed)) {
             throw new Error("Path is not a registered config file");
         }
@@ -610,7 +616,10 @@ if (!app.requestSingleInstanceLock()) {
                     return { ok: false, error: "Invalid content" };
                 }
                 if (hasExcessiveNesting(content)) {
-                    return { ok: false, error: "Content has excessive nesting" };
+                    return {
+                        ok: false,
+                        error: "Content has excessive nesting",
+                    };
                 }
                 const lang = langFromPath(filePath);
                 if (lang === "json") {
@@ -732,7 +741,10 @@ if (!app.requestSingleInstanceLock()) {
             }
             const trimmedName = name.trim();
             if (trimmedName.length > 80) {
-                return { ok: false, error: "Name must be 80 characters or fewer" };
+                return {
+                    ok: false,
+                    error: "Name must be 80 characters or fewer",
+                };
             }
             for (let i = 0; i < trimmedName.length; i += 1) {
                 const code = trimmedName.charCodeAt(i);
@@ -763,10 +775,7 @@ if (!app.requestSingleInstanceLock()) {
             try {
                 fs.accessSync(p, fs.constants.R_OK);
             } catch {
-                logError(
-                    "custom:add-access",
-                    `Path is not yet readable: ${p}`,
-                );
+                logError("custom:add-access", `Path is not yet readable: ${p}`);
             }
             settings.custom.push({
                 id: `custom-${randomUUID()}`,
@@ -996,9 +1005,7 @@ if (!app.requestSingleInstanceLock()) {
          * @param newName - The desired new file name.
          * @returns Result indicating success or the reason for failure.
          */
-        safe(
-            "file:rename",
-            (rawPath: unknown, newName: unknown): OpResult => {
+        safe("file:rename", (rawPath: unknown, newName: unknown): OpResult => {
                 const src = assertRegistered(rawPath);
                 if (!fs.existsSync(src) || fs.statSync(src).isDirectory()) {
                     return { ok: false, error: "File does not exist" };
@@ -1037,8 +1044,7 @@ if (!app.requestSingleInstanceLock()) {
                 fs.renameSync(src, validatedDst);
                 invalidateTools();
                 return { ok: true };
-            },
-        );
+        });
 
         /**
          * Renames a subfolder within its parent registered folder.
@@ -1070,8 +1076,10 @@ if (!app.requestSingleInstanceLock()) {
                 if (!fs.existsSync(src) || !fs.statSync(src).isDirectory()) {
                     return { ok: false, error: "Folder does not exist" };
                 }
-                const trimmed = typeof newName === "string" ? newName.trim() : "";
-                const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+                const trimmed =
+                    typeof newName === "string" ? newName.trim() : "";
+                const reserved =
+                    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
                 if (
                     !trimmed ||
                     !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||

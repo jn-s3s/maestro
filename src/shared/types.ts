@@ -1,11 +1,5 @@
 export type FileLang =
-    | "json"
-    | "jsonc"
-    | "yaml"
-    | "toml"
-    | "markdown"
-    | "dotenv"
-    | "text";
+    "json" | "jsonc" | "yaml" | "toml" | "markdown" | "dotenv" | "text";
 
 export interface ToolFile {
     id: string;

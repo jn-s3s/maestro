@@ -16,6 +16,8 @@
         "typecheck": "npm run typecheck:node && npm run typecheck:web",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
         "dist": "pnpm icon && electron-vite build && electron-builder",
         "logs": "node scripts/dump-logs.mjs",
         "clear": "node scripts/clear-data.mjs"
@@ -41,6 +43,7 @@
         "codemirror": "^6.0.2",
         "diff": "^9.0.0",
         "lucide-react": "^1.38.0",
+        "prettier": "^3.9.6",
         "react": "^19.2.8",
         "react-dom": "^19.2.8"
     },
