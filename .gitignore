@@ -19,12 +19,6 @@ resources/icon.ico
 .env
 .env.*
 
-# Personal AI agent configs, kept local only
-opencode.jsonc
-.aider*
-.docs/
-AGENTS.md
-
 # Logs
 *.log
 
