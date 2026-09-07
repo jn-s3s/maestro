@@ -1,6 +1,15 @@
 export type FileLang =
     "json" | "jsonc" | "yaml" | "toml" | "markdown" | "dotenv" | "text";
 
+/**
+ * A multi-root directory entry, identifying the section a root belongs to.
+ */
+export interface ToolRoot {
+    path: string; // absolute directory path
+    section: string; // section name this root belongs to, e.g. "Config" | "Data"
+    label?: string; // optional folder-row label; defaults to section
+}
+
 export interface ToolFile {
     id: string;
     label: string;
@@ -11,6 +20,7 @@ export interface ToolFile {
     parentLabel?: string;
     secret?: boolean;
     note?: string;
+    section?: string;
 }
 
 export interface ToolFolder {
@@ -18,6 +28,7 @@ export interface ToolFolder {
     label: string;
     path: string;
     exists: boolean;
+    section?: string;
 }
 
 export interface DirEntry {
@@ -36,7 +47,7 @@ export interface Tool {
     name: string;
     group: ToolGroup;
     subtitle?: string;
-    rootPath?: string;
+    roots?: ToolRoot[];
     files: ToolFile[];
     folders?: ToolFolder[];
 }

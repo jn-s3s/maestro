@@ -39,6 +39,43 @@ function normPath(p: string): string {
     return p.replace(/\//g, "\\").toLowerCase();
 }
 
+/**
+ * Finds the closest enclosing registered root folder for a given folder.
+ * Longest-prefix match against the tool's registered roots (not every
+ * folder), so a registered subfolder cannot match itself and the
+ * root-normalization in `selectFolder` stays meaningful.
+ */
+function containingRoot(
+    tool: Tool,
+    folder: ToolFolder,
+): ToolFolder | undefined {
+    const normFolder = normPath(folder.path);
+    let best: ToolFolder | undefined;
+    let bestLen = -1;
+    for (const root of tool.roots ?? []) {
+        const normRoot = normPath(root.path);
+        if (
+            normFolder.startsWith(normRoot) &&
+            normRoot.length > bestLen &&
+            // Reject false prefixes where one root path is a lexical prefix of
+            // another (e.g. opencode vs opencode-evil). Same boundary rule the
+            // main-process `findContainingFolder` applies via `path.sep`.
+            (normFolder.length === normRoot.length ||
+                normFolder.charAt(normRoot.length) === "\\" ||
+                normFolder.charAt(normRoot.length) === "/")
+        ) {
+            const synth = (tool.folders ?? []).find(
+                (f) => f.path === root.path,
+            );
+            if (synth) {
+                best = synth;
+                bestLen = normRoot.length;
+            }
+        }
+    }
+    return best;
+}
+
 interface Selection {
     tool: Tool;
     file: ToolFile;
@@ -274,9 +311,7 @@ function AppContent(): JSX.Element {
             clearDirty();
             setExternal(false);
 
-            const rootFolder = (tool.folders ?? []).find(
-                (f) => f.id === `${tool.id}/folder-root`,
-            );
+            const rootFolder = containingRoot(tool, folder);
             let target = folder;
             let dir = "";
             if (rootFolder && rootFolder.id !== folder.id) {
