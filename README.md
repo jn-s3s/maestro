@@ -30,6 +30,9 @@ Maestro is a Windows desktop app that detects config files and folders for popul
 ## Features
 
 - CodeMirror editors with syntax modes for JSON, JSONC, YAML, TOML and Markdown (dotenv and other plain text files open in a syntax free mode)
+- Live Markdown preview with GitHub Flavored Markdown support, shown beside the editor while editing Markdown files
+- In-editor document formatting for JSON, JSONC, YAML, TOML and Markdown with the toolbar button or `Ctrl+Shift+F`; formatting stays unsaved until you save
+- Optional soft wrapping for long editor lines, enabled from Settings
 - Folder browser with drill-down navigation, file and folder creation, rename, delete and reveal in Explorer via inline controls, keyboard shortcuts and a right-click context menu
 - Automatic backups with deduplication, history browsing, diff against the live editor, restore, delete and load into editor
 - Secret files are flagged so you know which entries hold tokens and API keys
@@ -37,10 +40,12 @@ Maestro is a Windows desktop app that detects config files and folders for popul
 - System, light and dark themes with a system tray that keeps the app in the background and surfaces recent files
 - Hide tools you do not use, switch to close to tray, and jump back to the last five files you opened from the tray menu
 - Filesystem watcher reloads a file within 250 ms when another process edits it, with a banner that protects unsaved edits
+- Saves use an atomic write so the file watcher does not treat Maestro's own save as an external edit
+- Links in Markdown preview open in the default browser without navigating the app window
 
 ## Limits
 
-Maestro opens config files inside its built-in editor up to **5 MB**. Anything larger returns an error that suggests opening the file in your default editor instead. Backup history is capped at 20 snapshots per file regardless of size, and identical snapshots are skipped to keep history focused on real changes.
+Maestro opens config files inside its built-in editor up to **5 MB**. Anything larger returns an error that suggests opening the file in your default editor instead. Backup history is capped at 20 snapshots per file regardless of size, and identical snapshots are skipped to keep history focused on real changes. The window can be resized to a minimum width of 480 pixels.
 
 All persistent state (settings, custom entries, recent files, backups, logs) lives under `%APPDATA%\maestro`.
 
