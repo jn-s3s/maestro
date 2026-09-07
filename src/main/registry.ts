@@ -12,6 +12,65 @@ import { langFromPath } from "../shared/types";
 
 const HOME = os.homedir();
 const APPDATA = process.env.APPDATA || path.join(HOME, "AppData", "Roaming");
+const LOCALAPPDATA =
+    process.env.LOCALAPPDATA || path.join(HOME, "AppData", "Local");
+
+/**
+ * Returns the first candidate path that exists, or undefined when none do.
+ * `fs.existsSync` can throw on malformed Windows paths, so each probe is
+ * guarded.
+ */
+function firstExisting(...candidates: string[]): string | undefined {
+    return candidates.find((p) => {
+        try {
+            return fs.existsSync(p);
+        } catch {
+            return false;
+        }
+    });
+}
+
+/**
+ * Resolves the XDG data home; the XDG_DATA_HOME env var wins, otherwise the
+ * Windows canonical fallback is `%LOCALAPPDATA%`.
+ */
+function xdgDataHome(): string {
+    return process.env.XDG_DATA_HOME || LOCALAPPDATA;
+}
+
+/**
+ * Resolves the XDG config home; the XDG_CONFIG_HOME env var wins, otherwise
+ * the Windows canonical fallback is `%APPDATA%`.
+ */
+function xdgConfigHome(): string {
+    return process.env.XDG_CONFIG_HOME || APPDATA;
+}
+
+/**
+ * Resolves OpenCode's data directory. Prefers the XDG data root, then the
+ * `~/.local/share/opencode` location some builds use, and finally falls back
+ * to the first candidate so the sidebar surfaces it with `exists: false`.
+ */
+function opencodeDataDir(): string {
+    const candidates = [
+        path.join(xdgDataHome(), "opencode"),
+        path.join(HOME, ".local", "share", "opencode"),
+    ];
+    return firstExisting(...candidates) ?? candidates[0];
+}
+
+/**
+ * Resolves Codex's home directory; a non-empty CODEX_HOME env var overrides
+ * the whole `~/.codex` default. The env value is normalized so a trailing
+ * separator cannot leak into the synthesised root folder's path.
+ */
+function codexHome(): string {
+    const override = process.env.CODEX_HOME?.trim();
+    if (override) {
+        return path.normalize(override);
+    }
+    return path.join(HOME, ".codex");
+}
 
 function makeFile(
     id: string,
@@ -29,8 +88,19 @@ function makeFile(
     };
 }
 
-function makeFolder(id: string, label: string, folderPath: string): ToolFolder {
-    return { id, label, path: folderPath, exists: fs.existsSync(folderPath) };
+function makeFolder(
+    id: string,
+    label: string,
+    folderPath: string,
+    extra?: Partial<ToolFolder>,
+): ToolFolder {
+    return {
+        id,
+        label,
+        path: folderPath,
+        exists: fs.existsSync(folderPath),
+        ...extra,
+    };
 }
 
 /**
@@ -51,8 +121,8 @@ const RELOAD_NOTE =
 /**
  * Builds the registry of known AI tool configs and extension folders.
  *
- * Synthesises a "Root folder" entry from each tool's `rootPath` and prepends
- * it to the tool's `folders` array. Tools without `rootPath` are left unchanged.
+ * Synthesises a "Root folder" entry for each tool `roots` entry and prepends
+ * them to the tool's `folders` array. Tools without `roots` are left unchanged.
  *
  * @param settings - Settings that carry the custom entries to include.
  * @returns The complete list of detected tools.
@@ -60,18 +130,27 @@ const RELOAD_NOTE =
 export function detectTools(settings: AppSettings): Tool[] {
     const tools: Tool[] = [];
 
-    const opencodeDir = path.join(HOME, ".config", "opencode");
+    const opencodeDir =
+        firstExisting(
+            path.join(xdgConfigHome(), "opencode"),
+            path.join(HOME, ".config", "opencode"),
+        ) ?? path.join(xdgConfigHome(), "opencode");
+    const opencodeLocal = opencodeDataDir();
     tools.push({
         id: "opencode",
         name: "OpenCode",
         group: "cli",
         subtitle: "~\\.config\\opencode",
-        rootPath: opencodeDir,
+        roots: [
+            { path: opencodeDir, section: "Config" },
+            { path: opencodeLocal, section: "Data" },
+        ],
         files: [
             makeFile(
                 "opencode/opencode.json",
                 "opencode.json",
                 path.join(opencodeDir, "opencode.json"),
+                { section: "Config" },
             ),
             makeFile(
                 "opencode/opencode.jsonc",
@@ -79,6 +158,17 @@ export function detectTools(settings: AppSettings): Tool[] {
                 path.join(opencodeDir, "opencode.jsonc"),
                 {
                     note: "OpenCode prefers opencode.jsonc over opencode.json when both exist.",
+                    section: "Config",
+                },
+            ),
+            makeFile(
+                "opencode/auth.json",
+                "auth.json",
+                path.join(opencodeLocal, "auth.json"),
+                {
+                    secret: true,
+                    note: "OAuth/session tokens.",
+                    section: "Data",
                 },
             ),
         ],
@@ -87,16 +177,25 @@ export function detectTools(settings: AppSettings): Tool[] {
                 "opencode/folder-command",
                 "commands",
                 path.join(opencodeDir, "command"),
+                { section: "Config" },
             ),
             makeFolder(
                 "opencode/folder-agents",
                 "agents",
                 path.join(opencodeDir, "agents"),
+                { section: "Config" },
             ),
             makeFolder(
                 "opencode/folder-plugins",
                 "plugins",
                 path.join(opencodeDir, "plugins"),
+                { section: "Config" },
+            ),
+            makeFolder(
+                "opencode/folder-storage",
+                "storage",
+                path.join(opencodeLocal, "storage"),
+                { section: "Data" },
             ),
         ],
     });
@@ -111,10 +210,12 @@ export function detectTools(settings: AppSettings): Tool[] {
                 "aider/.aider.conf.yml",
                 ".aider.conf.yml",
                 path.join(HOME, ".aider.conf.yml"),
+                { section: "Config" },
             ),
             makeFile("aider/.env", ".env", path.join(HOME, ".env"), {
                 secret: true,
                 note: "Aider reads API keys from %USERPROFILE%\\.env (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY).",
+                section: "Config",
             }),
         ],
     });
@@ -125,12 +226,13 @@ export function detectTools(settings: AppSettings): Tool[] {
         name: "Claude Code",
         group: "cli",
         subtitle: "~\\.claude",
-        rootPath: claudeDir,
+        roots: [{ path: claudeDir, section: "Config" }],
         files: [
             makeFile(
                 "claude-code/settings.json",
                 "settings.json",
                 path.join(claudeDir, "settings.json"),
+                { section: "Config" },
             ),
             makeFile(
                 "claude-code/.claude.json",
@@ -139,6 +241,7 @@ export function detectTools(settings: AppSettings): Tool[] {
                 {
                     secret: true,
                     note: "Contains account/session state and OAuth tokens.",
+                    section: "Config",
                 },
             ),
         ],
@@ -147,16 +250,19 @@ export function detectTools(settings: AppSettings): Tool[] {
                 "claude-code/folder-commands",
                 "commands",
                 path.join(claudeDir, "commands"),
+                { section: "Config" },
             ),
             makeFolder(
                 "claude-code/folder-agents",
                 "agents",
                 path.join(claudeDir, "agents"),
+                { section: "Config" },
             ),
             makeFolder(
                 "claude-code/folder-skills",
                 "skills",
                 path.join(claudeDir, "skills"),
+                { section: "Config" },
             ),
         ],
     });
@@ -166,17 +272,28 @@ export function detectTools(settings: AppSettings): Tool[] {
         name: "Gemini CLI",
         group: "cli",
         subtitle: "~\\.gemini",
-        rootPath: path.join(HOME, ".gemini"),
+        roots: [{ path: path.join(HOME, ".gemini"), section: "Config" }],
         files: [
             makeFile(
                 "gemini-cli/settings.json",
                 "settings.json",
                 path.join(HOME, ".gemini", "settings.json"),
+                { section: "Config" },
             ),
             makeFile(
                 "gemini-cli/GEMINI.md",
                 "GEMINI.md",
                 path.join(HOME, ".gemini", "GEMINI.md"),
+                { section: "Config" },
+            ),
+            makeFile(
+                "gemini-cli/.env",
+                ".env",
+                path.join(HOME, ".gemini", ".env"),
+                {
+                    secret: true,
+                    section: "Config",
+                },
             ),
         ],
         folders: [
@@ -184,29 +301,48 @@ export function detectTools(settings: AppSettings): Tool[] {
                 "gemini-cli/folder-commands",
                 "commands",
                 path.join(HOME, ".gemini", "commands"),
+                { section: "Config" },
+            ),
+            makeFolder(
+                "gemini-cli/folder-extensions",
+                "extensions",
+                path.join(HOME, ".gemini", "extensions"),
+                { section: "Config" },
             ),
         ],
     });
 
+    const codexRoot = codexHome();
     tools.push({
         id: "codex",
         name: "Codex CLI",
         group: "cli",
         subtitle: "~\\.codex",
-        rootPath: path.join(HOME, ".codex"),
+        roots: [{ path: codexRoot, section: "Config" }],
         files: [
             makeFile(
                 "codex/config.toml",
                 "config.toml",
-                path.join(HOME, ".codex", "config.toml"),
+                path.join(codexRoot, "config.toml"),
+                { section: "Config" },
             ),
             makeFile(
                 "codex/auth.json",
                 "auth.json",
-                path.join(HOME, ".codex", "auth.json"),
+                path.join(codexRoot, "auth.json"),
                 {
                     secret: true,
                     note: "Contains auth tokens.",
+                    section: "Config",
+                },
+            ),
+            makeFile(
+                "codex/.credentials.json",
+                ".credentials.json",
+                path.join(codexRoot, ".credentials.json"),
+                {
+                    secret: true,
+                    section: "Config",
                 },
             ),
         ],
@@ -214,7 +350,14 @@ export function detectTools(settings: AppSettings): Tool[] {
             makeFolder(
                 "codex/folder-prompts",
                 "prompts",
-                path.join(HOME, ".codex", "prompts"),
+                path.join(codexRoot, "prompts"),
+                { section: "Config" },
+            ),
+            makeFolder(
+                "codex/folder-skills",
+                "skills",
+                path.join(codexRoot, "skills"),
+                { section: "Config" },
             ),
         ],
     });
@@ -224,17 +367,19 @@ export function detectTools(settings: AppSettings): Tool[] {
         name: "Continue",
         group: "ext",
         subtitle: "~\\.continue",
-        rootPath: path.join(HOME, ".continue"),
+        roots: [{ path: path.join(HOME, ".continue"), section: "Config" }],
         files: [
             makeFile(
                 "continue/config.yaml",
                 "config.yaml",
                 path.join(HOME, ".continue", "config.yaml"),
+                { section: "Config" },
             ),
             makeFile(
                 "continue/config.json",
                 "config.json (legacy)",
                 path.join(HOME, ".continue", "config.json"),
+                { section: "Config" },
             ),
         ],
     });
@@ -256,12 +401,13 @@ export function detectTools(settings: AppSettings): Tool[] {
             name: f.name,
             group: "editor",
             subtitle: `%APPDATA%\\${f.dirName}\\User`,
-            rootPath: userDir,
+            roots: [{ path: userDir, section: "Config" }],
             files: [
                 makeFile(
                     `vscode-${f.id}/settings.json`,
                     "settings.json",
                     path.join(userDir, "settings.json"),
+                    { section: "Config" },
                 ),
             ],
         });
@@ -304,7 +450,7 @@ export function detectTools(settings: AppSettings): Tool[] {
                 name: e.name,
                 group: "ext",
                 subtitle: `${f.name} · ${e.folder}`,
-                rootPath: extDir,
+                roots: [{ path: extDir, section: "Config" }],
                 files: [
                     makeFile(
                         `${e.id}-${f.id}/${path.basename(e.file)}`,
@@ -312,6 +458,7 @@ export function detectTools(settings: AppSettings): Tool[] {
                         fp,
                         {
                             note: RELOAD_NOTE,
+                            section: "Config",
                         },
                     ),
                 ],
@@ -333,7 +480,11 @@ export function detectTools(settings: AppSettings): Tool[] {
                 group: "custom",
                 subtitle: c.path,
                 files: [],
-                folders: [makeFolder(`${c.id}/folder`, "Files", c.path)],
+                folders: [
+                    makeFolder(`${c.id}/folder`, "Files", c.path, {
+                        section: "Config",
+                    }),
+                ],
             });
         } else {
             tools.push({
@@ -346,20 +497,32 @@ export function detectTools(settings: AppSettings): Tool[] {
                         `${c.id}/file`,
                         path.basename(c.path) || c.path,
                         c.path,
+                        { section: "Config" },
                     ),
                 ],
             });
         }
     }
 
+    const slug = (s: string): string =>
+        s
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/(^-|-$)/g, "") || "root";
+
     for (const t of tools) {
-        if (!t.rootPath) continue;
-        const rootFolder: ToolFolder = makeFolder(
-            `${t.id}/folder-root`,
-            "Root folder",
-            t.rootPath,
+        if (!t.roots?.length) continue;
+        const roots = t.roots.map((r, i) =>
+            makeFolder(
+                `${t.id}/folder-root-${slug(r.section)}-${i}`,
+                r.label ?? r.section,
+                r.path,
+                {
+                    section: r.section,
+                },
+            ),
         );
-        t.folders = [rootFolder, ...(t.folders ?? [])];
+        t.folders = [...roots, ...(t.folders ?? [])];
     }
 
     return tools;
@@ -393,19 +556,41 @@ export function findContainingFolder(
     filePath: string,
 ): ToolFolder | undefined {
     const norm = path.normalize(canonicalPath(filePath)).toLowerCase();
+    let best: ToolFolder | undefined;
+    let bestLen = -1;
     for (const t of tools) {
         for (const fo of t.folders ?? []) {
-            const root = path.normalize(canonicalPath(fo.path)).toLowerCase();
-            if (
-                (norm + path.sep).startsWith(
-                    root.endsWith(path.sep) ? root : root + path.sep,
-                )
-            ) {
-                return fo;
+            let root = path.normalize(canonicalPath(fo.path)).toLowerCase();
+            if (!root.endsWith(path.sep)) root += path.sep;
+            if ((norm + path.sep).startsWith(root) && root.length > bestLen) {
+                best = fo;
+                bestLen = root.length;
             }
         }
     }
-    return undefined;
+    return best;
+}
+
+/**
+ * Reports whether a canonical path is registered as a secret-bearing file.
+ *
+ * @param tools - The detected tool list.
+ * @param filePath - Absolute path to look up.
+ * @returns True when the exact file is flagged secret.
+ */
+export function isSecretPath(tools: Tool[], filePath: string): boolean {
+    const key = path.normalize(canonicalPath(filePath)).toLowerCase();
+    for (const t of tools) {
+        for (const f of t.files) {
+            if (
+                f.secret === true &&
+                path.normalize(canonicalPath(f.path)).toLowerCase() === key
+            ) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /**
@@ -464,109 +649,8 @@ export function listDir(root: string): DirEntry[] {
 }
 
 /**
- * Removes line and block comments from a JSONC string.
- *
- * @param src - The raw JSONC source.
- * @returns The source with comments removed, strings preserved.
+ * JSONC comment and trailing-comma stripping helpers, re-exported from
+ * `src/shared/jsonc.ts` so main-process consumers (see index.ts) keep a single
+ * import surface.
  */
-export function stripJsonComments(src: string): string {
-    let out = "";
-    let i = 0;
-    let inStr = false;
-    let inLine = false;
-    let inBlock = false;
-    while (i < src.length) {
-        const ch = src[i];
-        const next = src[i + 1];
-        if (inLine) {
-            if (ch === "\n") {
-                inLine = false;
-                out += ch;
-            }
-            i++;
-            continue;
-        }
-        if (inBlock) {
-            if (ch === "*" && next === "/") {
-                inBlock = false;
-                i += 2;
-            } else {
-                i++;
-            }
-            continue;
-        }
-        if (inStr) {
-            out += ch;
-            if (ch === "\\") {
-                out += next ?? "";
-                i += 2;
-                continue;
-            }
-            if (ch === '"') inStr = false;
-            i++;
-            continue;
-        }
-        if (ch === '"') {
-            inStr = true;
-            out += ch;
-            i++;
-            continue;
-        }
-        if (ch === "/" && next === "/") {
-            inLine = true;
-            i += 2;
-            continue;
-        }
-        if (ch === "/" && next === "*") {
-            inBlock = true;
-            i += 2;
-            continue;
-        }
-        out += ch;
-        i++;
-    }
-    return out;
-}
-
-/**
- * Removes trailing commas that precede a closing brace or bracket.
- *
- * @param src - The raw source text.
- * @returns The source with trailing commas removed.
- */
-export function stripTrailingCommas(src: string): string {
-    let out = "";
-    let i = 0;
-    let inStr = false;
-    while (i < src.length) {
-        const ch = src[i];
-        if (inStr) {
-            out += ch;
-            if (ch === "\\") {
-                out += src[i + 1] ?? "";
-                i += 2;
-                continue;
-            }
-            if (ch === '"') inStr = false;
-            i++;
-            continue;
-        }
-        if (ch === '"') {
-            inStr = true;
-            out += ch;
-            i++;
-            continue;
-        }
-        if (ch === ",") {
-            let j = i + 1;
-            while (j < src.length && /\s/.test(src[j])) j++;
-            if (src[j] === "}" || src[j] === "]") {
-                i++;
-                continue;
-            }
-        }
-        out += ch;
-        i++;
-    }
-    return out;
-}
+export { stripJsonComments, stripTrailingCommas } from "../shared/jsonc";

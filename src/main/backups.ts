@@ -1,6 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { BACKUPS_ROOT, backupDirForFile, logError } from "./store";
+import {
+    BACKUP_ENC_PREFIX,
+    BACKUPS_ROOT,
+    backupDirForFile,
+    decodeStoredBackup,
+    encodeStoredBackup,
+    logError,
+} from "./store";
 import type { BackupEntry } from "../shared/types";
 
 const MAX_BACKUP_READ_BYTES = 5 * 1024 * 1024;
@@ -151,7 +158,7 @@ export function readBackupFile(raw: unknown): string {
         const st = fs.fstatSync(fd);
         if (st.size > MAX_BACKUP_READ_BYTES)
             throw new Error("Backup file is larger than 5 MB");
-        return fs.readFileSync(fd, "utf8");
+        return decodeStoredBackup(fs.readFileSync(fd, "utf8"));
     } finally {
         try {
             fs.closeSync(fd);
@@ -207,4 +214,45 @@ export function clearBackupsForFolder(folderPath: string): void {
             clearBackupsForFile(full);
         }
     }
+}
+
+/**
+ * Re-encrypts legacy plaintext backups that belong to secret files.
+ * Plaintext entries are rewritten in place as marked encrypted blobs.
+ *
+ * @param secretPaths - Absolute paths of files flagged secret.
+ * @returns The number of backups converted.
+ */
+export function encryptLegacySecretBackups(secretPaths: string[]): number {
+    let converted = 0;
+    for (const p of secretPaths) {
+        const dir = backupDirForFile(p);
+        let names: string[];
+        try {
+            names = fs.readdirSync(dir);
+        } catch {
+            continue;
+        }
+        for (const name of names) {
+            const fp = path.join(dir, name);
+            try {
+                // lstat does not follow symlinks, so a planted symlink
+                // inside the backups root is skipped, matching the
+                // no-follow behavior of clearBackupsForFolder.
+                if (!fs.lstatSync(fp).isFile()) continue;
+                const text = fs.readFileSync(fp, "utf8");
+                if (text.startsWith(BACKUP_ENC_PREFIX)) continue;
+                const tmp = `${fp}.enc-tmp`;
+                fs.writeFileSync(tmp, encodeStoredBackup(text), "utf8");
+                fs.renameSync(tmp, fp);
+                converted += 1;
+            } catch (err) {
+                logError(
+                    "backup-migrate",
+                    `${fp}: ${err instanceof Error ? err.message : String(err)}`,
+                );
+            }
+        }
+    }
+    return converted;
 }

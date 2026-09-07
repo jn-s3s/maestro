@@ -13,7 +13,8 @@ import os from "node:os";
 import path from "node:path";
 
 // Keep in sync with the same expression in src/main/store.ts.
-const BASE_DIR = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+const BASE_DIR =
+    process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 const MAESTRO_ROOT = path.join(BASE_DIR, "maestro");
 const LOGS_DIR = path.join(MAESTRO_ROOT, "logs");
 const BACKUPS_DIR = path.join(MAESTRO_ROOT, "backups");
@@ -29,7 +30,9 @@ function listDir(dir) {
     try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch (err) {
-        console.log(`  (unavailable: ${err instanceof Error ? err.message : err})`);
+        console.log(
+            `  (unavailable: ${err instanceof Error ? err.message : err})`,
+        );
         return;
     }
     for (const entry of entries) {
@@ -38,7 +41,9 @@ function listDir(dir) {
         try {
             st = fs.statSync(full);
         } catch (err) {
-            console.log(`  ${entry.name}  (cannot stat: ${err instanceof Error ? err.message : err})`);
+            console.log(
+                `  ${entry.name}  (cannot stat: ${err instanceof Error ? err.message : err})`,
+            );
             continue;
         }
         if (entry.isDirectory()) {

@@ -1,11 +1,14 @@
 export type FileLang =
-    | "json"
-    | "jsonc"
-    | "yaml"
-    | "toml"
-    | "markdown"
-    | "dotenv"
-    | "text";
+    "json" | "jsonc" | "yaml" | "toml" | "markdown" | "dotenv" | "text";
+
+/**
+ * A multi-root directory entry, identifying the section a root belongs to.
+ */
+export interface ToolRoot {
+    path: string; // absolute directory path
+    section: string; // section name this root belongs to, e.g. "Config" | "Data"
+    label?: string; // optional folder-row label; defaults to section
+}
 
 export interface ToolFile {
     id: string;
@@ -17,6 +20,7 @@ export interface ToolFile {
     parentLabel?: string;
     secret?: boolean;
     note?: string;
+    section?: string;
 }
 
 export interface ToolFolder {
@@ -24,6 +28,7 @@ export interface ToolFolder {
     label: string;
     path: string;
     exists: boolean;
+    section?: string;
 }
 
 export interface DirEntry {
@@ -42,7 +47,7 @@ export interface Tool {
     name: string;
     group: ToolGroup;
     subtitle?: string;
-    rootPath?: string;
+    roots?: ToolRoot[];
     files: ToolFile[];
     folders?: ToolFolder[];
 }
@@ -59,8 +64,10 @@ export interface AppSettings {
     version: number;
     theme: ThemeMode;
     closeToTray: boolean;
+    softWrap: boolean;
     historyResetDone: boolean;
     perFileHistoryResetDone: boolean;
+    secretBackupsEncrypted: boolean;
     hiddenTools: string[];
     recentFiles: string[];
     custom: CustomEntry[];
@@ -127,11 +134,13 @@ export interface Api {
     readFile(path: string): Promise<ReadResult>;
     writeFile(path: string, content: string): Promise<WriteResult>;
     reveal(path: string): Promise<void>;
-    openExternal(path: string): Promise<OpResult>;
+    openFile(path: string): Promise<OpResult>;
+    openExternal(url: string): Promise<void>;
     getSettings(): Promise<AppSettings>;
     setHidden(toolIds: string[]): Promise<AppSettings>;
     setTheme(mode: ThemeMode): Promise<AppSettings>;
     setCloseToTray(value: boolean): Promise<AppSettings>;
+    setSoftWrap(value: boolean): Promise<AppSettings>;
     addCustom(name: string, path: string): Promise<OpResult>;
     removeCustom(id: string): Promise<AppSettings>;
     pushRecent(path: string): Promise<void>;

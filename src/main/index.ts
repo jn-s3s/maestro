@@ -3,6 +3,7 @@ import {
     shell,
     BrowserWindow,
     ipcMain,
+    safeStorage,
     screen,
     Tray,
     Menu,
@@ -12,9 +13,11 @@ import {
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
     detectTools,
     findContainingFolder,
+    isSecretPath,
     listDir,
     registeredFolderRoots,
     registeredPaths,
@@ -32,6 +35,7 @@ import {
 import {
     clearBackupsForFile,
     deleteBackupFile,
+    encryptLegacySecretBackups,
     listBackupsForFile,
     readBackupFile,
 } from "./backups";
@@ -44,6 +48,14 @@ import type {
     WriteResult,
 } from "../shared/types";
 import { langFromPath } from "../shared/types";
+
+/**
+ * Absolute paths recently written by this process, mapped to the timestamp
+ * (ms) at which their suppression expires. Recorded by `file:write` so the
+ * fs watcher does not echo our own atomic tmp+rename save back to the
+ * renderer as a change. Keys are lower-cased for Windows case-insensitivity.
+ */
+const recentWrites = new Map<string, number>();
 
 if (!app.requestSingleInstanceLock()) {
     app.quit();
@@ -126,16 +138,16 @@ if (!app.requestSingleInstanceLock()) {
 
     /**
      * Constructs the main BrowserWindow and loads the renderer entry.
+     * The minimum width is intentionally low (480) so the user can drag
+     * the window to roughly half the width of any common display.
      */
     function createWindow(): void {
         const dark = nativeTheme.shouldUseDarkColors;
         const workArea = screen.getPrimaryDisplay().workArea;
-        const targetWidth = Math.min(1240, workArea.width - 24);
-        const targetHeight = Math.min(820, workArea.height - 24);
         mainWindow = new BrowserWindow({
-            width: targetWidth,
-            height: targetHeight,
-            minWidth: 1000,
+            width: Math.min(1240, workArea.width - 24),
+            height: Math.min(820, workArea.height - 24),
+            minWidth: 480,
             minHeight: 600,
             maxHeight: workArea.height,
             show: false,
@@ -151,10 +163,34 @@ if (!app.requestSingleInstanceLock()) {
                 contextIsolation: true,
                 nodeIntegration: false,
                 sandbox: true,
+                devTools: !app.isPackaged,
             },
         });
+        // Windows does not reliably paint the constructor-provided title bar
+        // overlay on the first frame; force a re-apply so the window control
+        // buttons match the resolved theme from the start.
+        applyOverlay();
+
+        const devUrl = process.env.ELECTRON_RENDERER_URL;
+        // Production navigation is locked to the app's own entry page; any
+        // other file:// URL would run with the full IPC bridge exposed.
+        const entryUrl = pathToFileURL(
+            path.join(__dirname, "../renderer/index.html"),
+        ).href;
+        mainWindow.webContents.on("will-navigate", (event, url) => {
+            const allowed = devUrl ? url.startsWith(devUrl) : url === entryUrl;
+            if (!allowed) {
+                event.preventDefault();
+            }
+        });
+        mainWindow.webContents.setWindowOpenHandler(() => ({
+            action: "deny",
+        }));
 
         mainWindow.on("ready-to-show", () => {
+            // Re-apply once more before the window becomes visible; the
+            // first paint can still render default (light) window controls.
+            applyOverlay();
             mainWindow?.show();
         });
 
@@ -170,7 +206,6 @@ if (!app.requestSingleInstanceLock()) {
         });
 
         const themeParam = dark ? "dark" : "light";
-        const devUrl = process.env.ELECTRON_RENDERER_URL;
         if (devUrl) {
             void mainWindow.loadURL(`${devUrl}?theme=${themeParam}`);
         } else {
@@ -308,6 +343,22 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     /**
+     * Reports whether the leaf entry itself is a symlink or junction, using
+     * a no-follow check so planted reparse points cannot redirect file
+     * operations that would otherwise follow them.
+     *
+     * @param p - Absolute path to inspect.
+     * @returns True when the leaf is a reparse point.
+     */
+    function isSymlinkLeaf(p: string): boolean {
+        try {
+            return fs.lstatSync(p).isSymbolicLink();
+        } catch {
+            return false;
+        }
+    }
+
+    /**
      * Checks if a JSON-like string has excessive nesting depth.
      * Counts opening brackets to estimate nesting level.
      *
@@ -362,10 +413,34 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     /**
+     * Removes expired self-write suppression entries. Lazy cleanup on access.
+     *
+     * @param now - The current time in milliseconds.
+     */
+    function sweepRecentWrites(now: number): void {
+        for (const [key, expiry] of recentWrites) {
+            if (now >= expiry) {
+                recentWrites.delete(key);
+            }
+        }
+    }
+
+    /**
      * Coalesces rapid change events for one path into a single
      * `fs:changed` notification, debounced at 250ms.
      */
     function scheduleNotify(fullPath: string): void {
+        const now = Date.now();
+        sweepRecentWrites(now);
+        // Skip paths we just wrote ourselves; the file:write handler records
+        // them here so the watcher does not echo our own atomic save back.
+        // Entries are swept by the 1s TTL above, so a present entry is still
+        // unexpired. Leaving it in place (rather than deleting on first hit)
+        // handles the two-event atomic save (tmp write + rename) correctly.
+        const selfWriteKey = path.resolve(fullPath).toLowerCase();
+        if (recentWrites.get(selfWriteKey) !== undefined) {
+            return;
+        }
         const key = normalizeKey(fullPath);
         const existing = notifyTimers.get(key);
         if (existing) {
@@ -446,7 +521,10 @@ if (!app.requestSingleInstanceLock()) {
             } catch (err) {
                 const message =
                     err instanceof Error ? err.message : String(err);
-                logError(channel, err instanceof Error ? (err.stack ?? message) : message);
+                logError(
+                    channel,
+                    err instanceof Error ? (err.stack ?? message) : message,
+                );
                 // Sanitize the rethrow so the renderer only sees the message.
                 // Full stack is captured in the log above.
                 // eslint-disable-next-line preserve-caught-error
@@ -505,7 +583,10 @@ if (!app.requestSingleInstanceLock()) {
         } catch {
             throw new Error("Invalid path");
         }
-        const reconstructed = path.join(realProbe, path.relative(probe, resolved));
+        const reconstructed = path.join(
+            realProbe,
+            path.relative(probe, resolved),
+        );
         if (!isWithinRegistered(getTools(), reconstructed)) {
             throw new Error("Path is not a registered config file");
         }
@@ -580,26 +661,50 @@ if (!app.requestSingleInstanceLock()) {
             tools: getTools(),
         }));
 
+        /**
+         * Reads a registered config file through a locked descriptor so a
+         * racing symlink swap between validation and I/O cannot redirect
+         * the read at a different file.
+         */
         safe("file:read", (rawPath: unknown): ReadResult => {
             const filePath = assertRegistered(rawPath);
             if (!fs.existsSync(filePath)) {
                 return { exists: false, content: "", size: 0, mtime: 0 };
             }
-            const st = fs.statSync(filePath);
-            if (st.isDirectory()) {
+            if (fs.statSync(filePath).isDirectory()) {
                 throw new Error("Path is a folder, not a file");
             }
-            if (st.size > 5 * 1024 * 1024) {
+            let fd: number;
+            try {
+                fd = fs.openSync(filePath, "r");
+            } catch (err) {
                 throw new Error(
-                    "File is larger than 5 MB. Open it externally instead.",
+                    `Cannot open file: ${
+                        err instanceof Error ? err.message : String(err)
+                    }`,
+                    { cause: err },
                 );
             }
-            return {
-                exists: true,
-                content: fs.readFileSync(filePath, "utf8"),
-                size: st.size,
-                mtime: st.mtimeMs,
-            };
+            try {
+                const st = fs.fstatSync(fd);
+                if (st.size > 5 * 1024 * 1024) {
+                    throw new Error(
+                        "File is larger than 5 MB. Open it externally instead.",
+                    );
+                }
+                return {
+                    exists: true,
+                    content: fs.readFileSync(fd, "utf8"),
+                    size: st.size,
+                    mtime: st.mtimeMs,
+                };
+            } finally {
+                try {
+                    fs.closeSync(fd);
+                } catch {
+                    // ignore
+                }
+            }
         });
 
         safe(
@@ -610,7 +715,10 @@ if (!app.requestSingleInstanceLock()) {
                     return { ok: false, error: "Invalid content" };
                 }
                 if (hasExcessiveNesting(content)) {
-                    return { ok: false, error: "Content has excessive nesting" };
+                    return {
+                        ok: false,
+                        error: "Content has excessive nesting",
+                    };
                 }
                 const lang = langFromPath(filePath);
                 if (lang === "json") {
@@ -634,11 +742,20 @@ if (!app.requestSingleInstanceLock()) {
                         };
                     }
                 }
-                const created = !fs.existsSync(filePath);
-                let skipBackup = created;
-                if (!created) {
+                // Snapshot the source through a locked descriptor so a
+                // symlink swap cannot redirect the backup at another file,
+                // and refuse a symlink planted at the target itself.
+                const secret = isSecretPath(getTools(), filePath);
+                let srcFd: number | null = null;
+                let created = false;
+                let skipBackup: boolean;
+                if (fs.existsSync(filePath)) {
+                    if (isSymlinkLeaf(filePath)) {
+                        return { ok: false, error: "Target path is a symlink" };
+                    }
                     try {
-                        skipBackup = fs.statSync(filePath).size === 0;
+                        srcFd = fs.openSync(filePath, "r");
+                        skipBackup = fs.fstatSync(srcFd).size === 0;
                     } catch (err) {
                         logError(
                             "file:write-stat",
@@ -646,17 +763,36 @@ if (!app.requestSingleInstanceLock()) {
                         );
                         skipBackup = false;
                     }
+                } else {
+                    created = true;
+                    skipBackup = true;
                 }
                 let backupPath: string | null = null;
                 if (!skipBackup) {
                     try {
-                        backupPath = backupFile(filePath);
+                        backupPath = backupFile(filePath, {
+                            secret,
+                            fd: srcFd,
+                        });
                     } catch (err) {
                         logError(
                             "file:write-backup",
                             err instanceof Error ? err.message : String(err),
                         );
                     }
+                }
+                if (srcFd !== null) {
+                    try {
+                        fs.closeSync(srcFd);
+                    } catch {
+                        // ignore
+                    }
+                }
+                if (!created && isSymlinkLeaf(filePath)) {
+                    return {
+                        ok: false,
+                        error: "Target path changed while saving",
+                    };
                 }
                 fs.mkdirSync(path.dirname(filePath), { recursive: true });
                 const tmp = `${filePath}.tmp-${Date.now()}`;
@@ -675,6 +811,12 @@ if (!app.requestSingleInstanceLock()) {
                         );
                     }
                 }
+                // Suppress the watcher echo for this self-write for 1s,
+                // long enough to outlast the 250ms debounce.
+                recentWrites.set(
+                    path.resolve(filePath).toLowerCase(),
+                    Date.now() + 1000,
+                );
                 return { ok: true, created, backupPath };
             },
         );
@@ -695,6 +837,30 @@ if (!app.requestSingleInstanceLock()) {
             }
             const err = await shell.openPath(p);
             return err ? { ok: false, error: err } : { ok: true };
+        });
+
+        safe("shell:openExternal", async (url: unknown) => {
+            if (typeof url !== "string") {
+                return { success: false, error: "Invalid URL" } as const;
+            }
+            let parsed: URL;
+            try {
+                parsed = new URL(url);
+            } catch {
+                return { success: false, error: "Invalid URL" } as const;
+            }
+            if (
+                parsed.protocol !== "http:" &&
+                parsed.protocol !== "https:" &&
+                parsed.protocol !== "mailto:"
+            ) {
+                return {
+                    success: false,
+                    error: "Unsupported URL scheme",
+                } as const;
+            }
+            await shell.openExternal(url);
+            return { success: true } as const;
         });
 
         safe("settings:get", (): AppSettings => loadSettings());
@@ -723,6 +889,12 @@ if (!app.requestSingleInstanceLock()) {
             return persist(settings);
         });
 
+        safe("settings:softWrap", (value: unknown): AppSettings => {
+            const settings = loadSettings();
+            settings.softWrap = value !== false;
+            return persist(settings);
+        });
+
         safe("custom:add", (name: unknown, rawPath: unknown): OpResult => {
             if (typeof name !== "string" || name.trim().length === 0) {
                 return { ok: false, error: "Name is required" };
@@ -732,7 +904,10 @@ if (!app.requestSingleInstanceLock()) {
             }
             const trimmedName = name.trim();
             if (trimmedName.length > 80) {
-                return { ok: false, error: "Name must be 80 characters or fewer" };
+                return {
+                    ok: false,
+                    error: "Name must be 80 characters or fewer",
+                };
             }
             for (let i = 0; i < trimmedName.length; i += 1) {
                 const code = trimmedName.charCodeAt(i);
@@ -763,10 +938,7 @@ if (!app.requestSingleInstanceLock()) {
             try {
                 fs.accessSync(p, fs.constants.R_OK);
             } catch {
-                logError(
-                    "custom:add-access",
-                    `Path is not yet readable: ${p}`,
-                );
+                logError("custom:add-access", `Path is not yet readable: ${p}`);
             }
             settings.custom.push({
                 id: `custom-${randomUUID()}`,
@@ -878,7 +1050,10 @@ if (!app.requestSingleInstanceLock()) {
                         error: "A file with this name already exists",
                     };
                 }
-                fs.writeFileSync(target, "", "utf8");
+                // Exclusive create so a symlink planted at the target between
+                // the existence check and the write fails instead of being
+                // followed.
+                fs.writeFileSync(target, "", { encoding: "utf8", flag: "wx" });
                 invalidateTools();
                 return { ok: true };
             },
@@ -963,7 +1138,13 @@ if (!app.requestSingleInstanceLock()) {
                     };
                 }
             }
-            await shell.trashItem(p);
+            // Fail closed when the leaf was swapped for a symlink after
+            // validation; a throw here aborts the delete.
+            const fresh = canonicalize(p);
+            if (isSymlinkLeaf(fresh)) {
+                return { ok: false, error: "Cannot delete a symlink" };
+            }
+            await shell.trashItem(fresh);
             invalidateTools();
             return { ok: true };
         });
@@ -982,7 +1163,13 @@ if (!app.requestSingleInstanceLock()) {
                     error: "Root config files cannot be deleted here",
                 };
             }
-            await shell.trashItem(p);
+            // Fail closed when the leaf was swapped for a symlink after
+            // validation; a throw here aborts the delete.
+            const fresh = canonicalize(p);
+            if (isSymlinkLeaf(fresh)) {
+                return { ok: false, error: "Cannot delete a symlink" };
+            }
+            await shell.trashItem(fresh);
             invalidateTools();
             return { ok: true };
         });
@@ -996,49 +1183,52 @@ if (!app.requestSingleInstanceLock()) {
          * @param newName - The desired new file name.
          * @returns Result indicating success or the reason for failure.
          */
-        safe(
-            "file:rename",
-            (rawPath: unknown, newName: unknown): OpResult => {
-                const src = assertRegistered(rawPath);
-                if (!fs.existsSync(src) || fs.statSync(src).isDirectory()) {
-                    return { ok: false, error: "File does not exist" };
-                }
-                if (registeredPaths(getTools()).has(normalizeKey(src))) {
-                    return {
-                        ok: false,
-                        error: "Root config files cannot be renamed here",
-                    };
-                }
-                const trimmed = typeof newName === "string" ? newName.trim() : "";
-                const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
-                if (
-                    !trimmed ||
-                    !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
-                    trimmed === "." ||
-                    trimmed === ".." ||
-                    trimmed.startsWith(".") ||
-                    trimmed.endsWith(".") ||
-                    trimmed.endsWith(" ") ||
-                    reserved.test(trimmed)
-                ) {
-                    return { ok: false, error: "Invalid file name" };
-                }
-                const dst = path.join(path.dirname(src), trimmed);
-                if (normalizeKey(dst) === normalizeKey(src)) {
-                    return { ok: true };
-                }
-                if (fs.existsSync(dst)) {
-                    return {
-                        ok: false,
-                        error: "A file with this name already exists",
-                    };
-                }
-                const validatedDst = canonicalize(dst);
-                fs.renameSync(src, validatedDst);
-                invalidateTools();
+        safe("file:rename", (rawPath: unknown, newName: unknown): OpResult => {
+            const src = assertRegistered(rawPath);
+            if (!fs.existsSync(src) || fs.statSync(src).isDirectory()) {
+                return { ok: false, error: "File does not exist" };
+            }
+            if (registeredPaths(getTools()).has(normalizeKey(src))) {
+                return {
+                    ok: false,
+                    error: "Root config files cannot be renamed here",
+                };
+            }
+            // Fail closed when the leaf was swapped for a symlink after
+            // validation, so the rename cannot move a planted reparse point.
+            const freshSrc = canonicalize(src);
+            if (isSymlinkLeaf(freshSrc)) {
+                return { ok: false, error: "Cannot rename a symlink" };
+            }
+            const trimmed = typeof newName === "string" ? newName.trim() : "";
+            const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+            if (
+                !trimmed ||
+                !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
+                trimmed === "." ||
+                trimmed === ".." ||
+                trimmed.startsWith(".") ||
+                trimmed.endsWith(".") ||
+                trimmed.endsWith(" ") ||
+                reserved.test(trimmed)
+            ) {
+                return { ok: false, error: "Invalid file name" };
+            }
+            const dst = path.join(path.dirname(freshSrc), trimmed);
+            if (normalizeKey(dst) === normalizeKey(freshSrc)) {
                 return { ok: true };
-            },
-        );
+            }
+            if (fs.existsSync(dst)) {
+                return {
+                    ok: false,
+                    error: "A file with this name already exists",
+                };
+            }
+            const validatedDst = canonicalize(dst);
+            fs.renameSync(freshSrc, validatedDst);
+            invalidateTools();
+            return { ok: true };
+        });
 
         /**
          * Renames a subfolder within its parent registered folder.
@@ -1070,8 +1260,13 @@ if (!app.requestSingleInstanceLock()) {
                 if (!fs.existsSync(src) || !fs.statSync(src).isDirectory()) {
                     return { ok: false, error: "Folder does not exist" };
                 }
-                const trimmed = typeof newName === "string" ? newName.trim() : "";
-                const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+                if (isSymlinkLeaf(src)) {
+                    return { ok: false, error: "Cannot rename a symlink" };
+                }
+                const trimmed =
+                    typeof newName === "string" ? newName.trim() : "";
+                const reserved =
+                    /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
                 if (
                     !trimmed ||
                     !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
@@ -1126,6 +1321,32 @@ if (!app.requestSingleInstanceLock()) {
                 resetBackups();
                 settings.perFileHistoryResetDone = true;
                 settingsDirty = true;
+            }
+            if (!settings.secretBackupsEncrypted) {
+                // One-time migration: encrypt legacy plaintext backups of
+                // secret-flagged files. Deferred when safe storage is
+                // unavailable so the flag stays false and this retries.
+                if (safeStorage.isEncryptionAvailable()) {
+                    try {
+                        const secretPaths = getTools()
+                            .flatMap((t) => t.files)
+                            .filter((f) => f.secret === true)
+                            .map((f) => f.path);
+                        encryptLegacySecretBackups(secretPaths);
+                    } catch (err) {
+                        logError(
+                            "backup-migrate",
+                            err instanceof Error ? err.message : String(err),
+                        );
+                    }
+                    settings.secretBackupsEncrypted = true;
+                    settingsDirty = true;
+                } else {
+                    logError(
+                        "backup-migrate",
+                        "Safe storage unavailable; secret backup migration deferred",
+                    );
+                }
             }
             if (settingsDirty) {
                 saveSettings(settings);

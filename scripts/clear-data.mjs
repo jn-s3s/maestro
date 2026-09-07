@@ -15,7 +15,8 @@ import os from "node:os";
 import path from "node:path";
 
 // Keep in sync with the same expression in src/main/store.ts.
-const BASE_DIR = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+const BASE_DIR =
+    process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 const MAESTRO_ROOT = path.join(BASE_DIR, "maestro");
 const TARGETS = [
     path.join(MAESTRO_ROOT, "backups"),
@@ -80,5 +81,7 @@ for (const target of TARGETS) {
 }
 
 if (!process.argv.includes("--yes")) {
-    console.log("\nDry run. Re-run with --yes to actually delete the data above.");
+    console.log(
+        "\nDry run. Re-run with --yes to actually delete the data above.",
+    );
 }

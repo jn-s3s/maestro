@@ -36,12 +36,14 @@ const api: Api = {
     writeFile: (filePath, content) =>
         ipcRenderer.invoke("file:write", filePath, content),
     reveal: (filePath) => ipcRenderer.invoke("shell:reveal", filePath),
-    openExternal: (filePath) => ipcRenderer.invoke("shell:open", filePath),
+    openFile: (filePath) => ipcRenderer.invoke("shell:open", filePath),
+    openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
     getSettings: () => ipcRenderer.invoke("settings:get"),
     setHidden: (toolIds) => ipcRenderer.invoke("settings:hidden", toolIds),
     setTheme: (mode) => ipcRenderer.invoke("settings:theme", mode),
     setCloseToTray: (value) =>
         ipcRenderer.invoke("settings:closeToTray", value),
+    setSoftWrap: (value) => ipcRenderer.invoke("settings:softWrap", value),
     addCustom: (name, filePath) =>
         ipcRenderer.invoke("custom:add", name, filePath),
     removeCustom: (id) => ipcRenderer.invoke("custom:remove", id),

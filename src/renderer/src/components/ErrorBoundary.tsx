@@ -41,8 +41,8 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
                             Something went wrong
                         </h2>
                         <p className="mt-2 text-xs text-faint">
-                            The interface hit an unexpected error. Reload to
-                            try again.
+                            The interface hit an unexpected error. Reload to try
+                            again.
                         </p>
                         <button
                             type="button"

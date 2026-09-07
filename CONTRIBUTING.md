@@ -19,15 +19,15 @@ pnpm dev
 
 Useful commands:
 
-| Command | Description |
-| --- | --- |
-| `pnpm dev` | Run the app in development mode with hot reload |
-| `pnpm build` | Production build to `out/` |
-| `pnpm typecheck` | Typecheck both TypeScript projects |
-| `pnpm lint` | Lint the repo with ESLint (`pnpm lint:fix` to autofix) |
-| `pnpm logs` | Print the main process log plus the settings path and the full backup tree |
-| `pnpm clear` | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
-| `pnpm dist` | Regenerate icons, build and full packaged output into `release/` |
+| Command          | Description                                                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`       | Run the app in development mode with hot reload                                                                                        |
+| `pnpm build`     | Production build to `out/`                                                                                                             |
+| `pnpm typecheck` | Typecheck both TypeScript projects                                                                                                     |
+| `pnpm lint`      | Lint the repo with ESLint (`pnpm lint:fix` to autofix)                                                                                 |
+| `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
+| `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
+| `pnpm dist`      | Regenerate icons, build and full packaged output into `release/`                                                                       |
 
 There is no test framework configured yet, so `pnpm typecheck` and `pnpm lint` are the verification gates. CI runs typecheck, lint and build on every push and pull request targeting `main`.
 

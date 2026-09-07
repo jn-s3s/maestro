@@ -1,6 +1,6 @@
 {
     "name": "maestro",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "private": true,
     "description": "Maestro - conduct all your AI coding agent configurations from one podium",
     "main": "./out/main/index.js",
@@ -16,9 +16,12 @@
         "typecheck": "npm run typecheck:node && npm run typecheck:web",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
         "dist": "pnpm icon && electron-vite build && electron-builder",
         "logs": "node scripts/dump-logs.mjs",
-        "clear": "node scripts/clear-data.mjs"
+        "clear": "node scripts/clear-data.mjs",
+        "postinstall": "node node_modules/electron/install.js"
     },
     "pnpm": {
         "onlyBuiltDependencies": [
@@ -37,12 +40,16 @@
         "@codemirror/state": "^6.7.2",
         "@codemirror/view": "^6.43.10",
         "@fontsource-variable/inter": "^5.3.0",
+        "@iarna/toml": "^2.2.5",
         "@lezer/highlight": "^1.2.3",
         "codemirror": "^6.0.2",
         "diff": "^9.0.0",
         "lucide-react": "^1.38.0",
+        "prettier": "^3.9.6",
         "react": "^19.2.8",
-        "react-dom": "^19.2.8"
+        "react-dom": "^19.2.8",
+        "react-markdown": "^9.1.0",
+        "remark-gfm": "^4.0.1"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",

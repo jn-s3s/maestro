@@ -15,39 +15,44 @@ Maestro is a Windows desktop app that detects config files and folders for popul
 
 ## Supported tools out of the box
 
-| Tool | What Maestro manages |
-| --- | --- |
-| OpenCode | `opencode.json` / `opencode.jsonc`, commands, agents and plugins folders |
-| Aider | `.aider.conf.yml` and `~/.env` API keys |
-| Claude Code | `settings.json`, `.claude.json`, commands, agents and skills folders |
-| Gemini CLI | `settings.json`, `GEMINI.md`, commands folder |
-| Codex CLI | `config.toml`, `auth.json`, prompts folder |
-| Continue | `config.yaml` plus legacy `config.json` |
-| VS Code / Insiders / VSCodium | User `settings.json` for each installed flavor |
-| Cline / Roo Code / Kilo Code | MCP settings per VS Code flavor |
-| Custom entries | Any file or folder you register yourself |
+| Tool                          | What Maestro manages                                                     |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| OpenCode                      | `opencode.json` / `opencode.jsonc`, commands, agents and plugins folders |
+| Aider                         | `.aider.conf.yml` and `~/.env` API keys                                  |
+| Claude Code                   | `settings.json`, `.claude.json`, commands, agents and skills folders     |
+| Gemini CLI                    | `settings.json`, `GEMINI.md`, commands folder                            |
+| Codex CLI                     | `config.toml`, `auth.json`, prompts folder                               |
+| Continue                      | `config.yaml` plus legacy `config.json`                                  |
+| VS Code / Insiders / VSCodium | User `settings.json` for each installed flavor                           |
+| Cline / Roo Code / Kilo Code  | MCP settings per VS Code flavor                                          |
+| Custom entries                | Any file or folder you register yourself                                 |
 
 ## Features
 
 - CodeMirror editors with syntax modes for JSON, JSONC, YAML, TOML and Markdown (dotenv and other plain text files open in a syntax free mode)
+- Live Markdown preview with GitHub Flavored Markdown support, shown beside the editor while editing Markdown files
+- In-editor document formatting for JSON, JSONC, YAML, TOML and Markdown with the toolbar button or `Ctrl+Shift+F`; formatting stays unsaved until you save
+- Optional soft wrapping for long editor lines, enabled from Settings
 - Folder browser with drill-down navigation, file and folder creation, rename, delete and reveal in Explorer via inline controls, keyboard shortcuts and a right-click context menu
 - Automatic backups with deduplication, history browsing, diff against the live editor, restore, delete and load into editor
-- Secret files are flagged so you know which entries hold tokens and API keys
+- Secret files are flagged so you know which entries hold tokens and API keys, and their backups are encrypted at rest with OS-managed keys (DPAPI on Windows)
 - Custom entries for any other config file or folder on disk
 - System, light and dark themes with a system tray that keeps the app in the background and surfaces recent files
 - Hide tools you do not use, switch to close to tray, and jump back to the last five files you opened from the tray menu
 - Filesystem watcher reloads a file within 250 ms when another process edits it, with a banner that protects unsaved edits
+- Saves use an atomic write so the file watcher does not treat Maestro's own save as an external edit
+- Links in Markdown preview open in the default browser without navigating the app window
 
 ## Limits
 
-Maestro opens config files inside its built-in editor up to **5 MB**. Anything larger returns an error that suggests opening the file in your default editor instead. Backup history is capped at 20 snapshots per file regardless of size, and identical snapshots are skipped to keep history focused on real changes.
+Maestro opens config files inside its built-in editor up to **5 MB**. Anything larger returns an error that suggests opening the file in your default editor instead. Backup history is capped at 20 snapshots per file regardless of size, and identical snapshots are skipped to keep history focused on real changes. The window can be resized to a minimum width of 480 pixels.
 
 All persistent state (settings, custom entries, recent files, backups, logs) lives under `%APPDATA%\maestro`.
 
 Inside the data root:
 
 - `settings.json` holds theme, tray, hidden tools, recent files and custom entries.
-- `backups\<basename>-<12-char-sha1>\` stores the per-file backup snapshots, capped at 20 per file with deduplication.
+- `backups\<basename>-<12-char-sha1>\` stores the per-file backup snapshots, capped at 20 per file with deduplication. Snapshots of secret-flagged files are stored encrypted and can only be decrypted by the same Windows user account that created them.
 - `logs\main.log` is the rotating main process log (rotated to `main.log.old` at 512 KB).
 
 Use `pnpm clear` during development to reset just the `backups/` and `logs/` folders (it leaves `settings.json` alone, dry-runs by default and only deletes when you pass `--yes`), and `pnpm logs` to print the log lines together with the settings path and the full backup tree.
@@ -70,16 +75,16 @@ pnpm install
 pnpm dev
 ```
 
-| Command | Description |
-| --- | --- |
-| `pnpm dev` | Start Electron in development mode with hot reload |
-| `pnpm build` | Production build to `out/` |
-| `pnpm icon` | Regenerate runtime icon assets from `resources/icon-source.png` |
-| `pnpm typecheck` | Typecheck main/preload/shared and renderer projects |
-| `pnpm lint` | Lint the repo with ESLint |
-| `pnpm logs` | Print the main process log plus the settings path and the full backup tree |
-| `pnpm clear` | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
-| `pnpm dist` | Regenerate icons, build and package into `release/` |
+| Command          | Description                                                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`       | Start Electron in development mode with hot reload                                                                                     |
+| `pnpm build`     | Production build to `out/`                                                                                                             |
+| `pnpm icon`      | Regenerate runtime icon assets from `resources/icon-source.png`                                                                        |
+| `pnpm typecheck` | Typecheck main/preload/shared and renderer projects                                                                                    |
+| `pnpm lint`      | Lint the repo with ESLint                                                                                                              |
+| `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
+| `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
+| `pnpm dist`      | Regenerate icons, build and package into `release/`                                                                                    |
 
 ### Project structure
 

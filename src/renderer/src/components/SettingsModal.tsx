@@ -27,6 +27,7 @@ export default function SettingsModal({
     const toast = useToast();
     const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set(hidden));
     const [closeToTray, setCloseToTray] = useState(false);
+    const [softWrap, setSoftWrap] = useState(true);
     const [name, setName] = useState("");
     const [path, setPath] = useState("");
     const [error, setError] = useState<string | null>(null);
@@ -34,7 +35,10 @@ export default function SettingsModal({
     useEffect(() => {
         void window.api
             .getSettings()
-            .then((s: AppSettings) => setCloseToTray(s.closeToTray))
+            .then((s: AppSettings) => {
+                setCloseToTray(s.closeToTray);
+                setSoftWrap(s.softWrap);
+            })
             .catch((err) =>
                 toast.error(err instanceof Error ? err.message : String(err)),
             );
@@ -58,6 +62,17 @@ export default function SettingsModal({
         setCloseToTray(next);
         try {
             await window.api.setCloseToTray(next);
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        }
+    };
+
+    const toggleSoftWrap = async (): Promise<void> => {
+        const next = !softWrap;
+        setSoftWrap(next);
+        try {
+            await window.api.setSoftWrap(next);
+            await onChanged();
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
         }
@@ -115,23 +130,42 @@ export default function SettingsModal({
                         <p className="mb-2 text-xs font-medium text-secondary">
                             Behavior
                         </p>
-                        <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-3.5 py-3 transition-colors hover:bg-raised">
-                            <span>
-                                <span className="block text-sm text-primary">
-                                    Minimize to tray
+                        <div className="space-y-2">
+                            <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-3.5 py-3 transition-colors hover:bg-raised">
+                                <span>
+                                    <span className="block text-sm text-primary">
+                                        Minimize to tray
+                                    </span>
+                                    <span className="block text-xs text-faint">
+                                        Closing the window keeps the app running
+                                        in the tray
+                                    </span>
                                 </span>
-                                <span className="block text-xs text-faint">
-                                    Closing the window keeps the app running in
-                                    the tray
+                                <input
+                                    type="checkbox"
+                                    className="size-4 accent-accent"
+                                    checked={closeToTray}
+                                    onChange={() => void toggleTray()}
+                                />
+                            </label>
+                            <label className="flex cursor-pointer items-center justify-between rounded-xl border border-line px-3.5 py-3 transition-colors hover:bg-raised">
+                                <span>
+                                    <span className="block text-sm text-primary">
+                                        Soft wrap
+                                    </span>
+                                    <span className="block text-xs text-faint">
+                                        Wrap long lines in the editor instead of
+                                        scrolling horizontally
+                                    </span>
                                 </span>
-                            </span>
-                            <input
-                                type="checkbox"
-                                className="size-4 accent-accent"
-                                checked={closeToTray}
-                                onChange={() => void toggleTray()}
-                            />
-                        </label>
+                                <input
+                                    type="checkbox"
+                                    className="size-4 accent-accent"
+                                    checked={softWrap}
+                                    onChange={() => void toggleSoftWrap()}
+                                />
+                            </label>
+                        </div>
                     </section>
 
                     <section className="border-t border-line pt-4">

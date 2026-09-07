@@ -221,10 +221,7 @@ export default function FolderView({
         }
     };
 
-    const openContextMenu = (
-        e: React.MouseEvent,
-        entry: DirEntry,
-    ): void => {
+    const openContextMenu = (e: React.MouseEvent, entry: DirEntry): void => {
         e.preventDefault();
         const items: ContextMenuItem[] = entry.isDir
             ? [
@@ -420,9 +417,7 @@ export default function FolderView({
                                                 onKeyDown={(e) => {
                                                     if (e.key === "Enter")
                                                         void commitRename();
-                                                    else if (
-                                                        e.key === "Escape"
-                                                    )
+                                                    else if (e.key === "Escape")
                                                         cancelRename();
                                                 }}
                                                 onBlur={() =>
@@ -492,9 +487,7 @@ export default function FolderView({
                                                 onKeyDown={(e) => {
                                                     if (e.key === "Enter")
                                                         void commitRename();
-                                                    else if (
-                                                        e.key === "Escape"
-                                                    )
+                                                    else if (e.key === "Escape")
                                                         cancelRename();
                                                 }}
                                                 onBlur={() =>

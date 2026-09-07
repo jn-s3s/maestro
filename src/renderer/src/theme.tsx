@@ -1,4 +1,10 @@
-import { useEffect, useState, type JSX, type ReactNode } from "react";
+import {
+    useEffect,
+    useLayoutEffect,
+    useState,
+    type JSX,
+    type ReactNode,
+} from "react";
 import { ThemeCtx, type Resolved } from "./theme-context";
 
 interface Props {
@@ -21,7 +27,10 @@ export function ThemeProvider({ initial, children }: Props): JSX.Element {
         });
     }, []);
 
-    useEffect(() => {
+    // Layout effect so the root class flips before paint and before any
+    // child's passive effect reads theme CSS variables; children effects run
+    // before parent effects, so a passive toggle here would race them.
+    useLayoutEffect(() => {
         document.documentElement.classList.toggle("dark", mode === "dark");
     }, [mode]);
 
