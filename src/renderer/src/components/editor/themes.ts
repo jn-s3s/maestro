@@ -54,7 +54,6 @@ function chromeTheme(accent: string, isDark: boolean): Extension {
     const surface = readCssVar("--surface", isDark ? "#111113" : "#ffffff");
     const txt2 = readCssVar("--txt2", isDark ? "#a1a1aa" : "#52525b");
     const app = readCssVar("--app", isDark ? "#09090b" : "#fafafa");
-    const gutterTint = isDark ? withAlpha(txt2, 0.04) : withAlpha(txt2, 0.06);
     const activeLine = withAlpha(accent, isDark ? 0.12 : 0.07);
     const selection = withAlpha(accent, isDark ? 0.28 : 0.2);
     const selectionInactive = withAlpha(accent, isDark ? 0.18 : 0.12);
@@ -97,7 +96,7 @@ function chromeTheme(accent: string, isDark: boolean): Extension {
                 color: "inherit",
             },
             ".cm-gutters": {
-                backgroundColor: gutterTint,
+                backgroundColor: surface,
                 color: txt2,
                 border: "none",
                 borderRight: `1px solid ${line}`,

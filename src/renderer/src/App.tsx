@@ -10,11 +10,18 @@ import {
 } from "react";
 import { FileCog, Loader2, Settings2 } from "lucide-react";
 import logoUrl from "./assets/logo.png";
-import type { Tool, ToolFile, ToolFolder } from "../../shared/types";
+import type {
+    AppSettings,
+    Tool,
+    ToolFile,
+    ToolFolder,
+} from "../../shared/types";
 import Sidebar from "./components/Sidebar";
 import EditorPane, { type EditorHandle } from "./components/EditorPane";
 import ThemeSwitch from "./components/ThemeSwitch";
 import FolderView from "./components/FolderView";
+import PreviewPane from "./components/PreviewPane";
+import { formatDocument } from "./lib/beautify";
 import { ToastProvider } from "./components/Toasts";
 import { useToast } from "./components/useToast";
 import ConfirmDialog from "./components/ConfirmDialog";
@@ -57,6 +64,8 @@ type ModalKind = "settings" | "history" | null;
 function AppContent(): JSX.Element {
     const [tools, setTools] = useState<Tool[]>([]);
     const [hidden, setHidden] = useState<string[]>([]);
+    const [settings, setSettings] = useState<AppSettings | null>(null);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [sel, setSel] = useState<Selection | null>(null);
     const [selFolder, setSelFolder] = useState<FolderContext | null>(null);
     const [dirty, setDirty] = useState(false);
@@ -66,11 +75,17 @@ function AppContent(): JSX.Element {
     const [modal, setModal] = useState<ModalKind>(null);
     const [external, setExternal] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [formatting, setFormatting] = useState(false);
+    const [liveContent, setLiveContent] = useState<string | null>(null);
     const editorRef = useRef<EditorHandle | null>(null);
     const savingRef = useRef(false);
+    const formattingRef = useRef(false);
     const dirtyRef = useRef(false);
     const selRef = useRef<Selection | null>(null);
     const selFolderRef = useRef<FolderContext | null>(null);
+    const recentSavesRef = useRef<
+        Map<string, { content: string; until: number }>
+    >(new Map());
     const mode = useThemeMode();
     const toast = useToast();
 
@@ -101,6 +116,15 @@ function AppContent(): JSX.Element {
     }, []);
 
     /**
+     * Keeps the Markdown preview in sync with the current editor content.
+     * Only wired when the active file is Markdown, so non-Markdown files
+     * never pay the O(n) stringify plus state update cost on keystrokes.
+     */
+    const handleEditorChange = useCallback((content: string) => {
+        setLiveContent(content);
+    }, []);
+
+    /**
      * Re-fetches the tool list and hidden-tools setting in parallel.
      */
     const refresh = useCallback(async () => {
@@ -110,6 +134,7 @@ function AppContent(): JSX.Element {
         ]);
         setTools(t.tools);
         setHidden(s.hiddenTools);
+        setSettings(s);
     }, []);
 
     useEffect(() => {
@@ -125,7 +150,10 @@ function AppContent(): JSX.Element {
         void window.api
             .getSettings()
             .then((s) => {
-                if (alive) setHidden(s.hiddenTools);
+                if (alive) {
+                    setHidden(s.hiddenTools);
+                    setSettings(s);
+                }
             })
             .catch((err) =>
                 toast.error(err instanceof Error ? err.message : String(err)),
@@ -144,6 +172,10 @@ function AppContent(): JSX.Element {
             if (!selFolderRef) {
                 setSelFolder(null);
             }
+            const previousPath = selRef.current?.file.path;
+            if (previousPath) {
+                recentSavesRef.current.delete(previousPath);
+            }
             void window.api
                 .readFile(file.path)
                 .then((r) => {
@@ -158,6 +190,7 @@ function AppContent(): JSX.Element {
                     });
                     clearDirty();
                     setReloadNonce((n) => n + 1);
+                    setLiveContent(null);
                 })
                 .catch((err) =>
                     toast.error(
@@ -173,6 +206,7 @@ function AppContent(): JSX.Element {
      */
     const backToFolder = useCallback(() => {
         if (!sel?.selFolderRef) return;
+        recentSavesRef.current.delete(sel.file.path);
         setSel(null);
         clearDirty();
         setExternal(false);
@@ -191,6 +225,7 @@ function AppContent(): JSX.Element {
             const res = await window.api.deleteFile(cur.file.path);
             if (res.ok) {
                 toast.info(`Deleted ${cur.file.label}`);
+                recentSavesRef.current.delete(cur.file.path);
                 setSel(null);
                 clearDirty();
                 setExternal(false);
@@ -220,13 +255,49 @@ function AppContent(): JSX.Element {
 
     /**
      * Opens a tool folder in the folder view.
+     *
+     * If the clicked folder lives inside the tool's registered root folder, this
+     * is normalised to the root folder with `dir` set to the relative path. That
+     * way FolderView's existing `cwdRel` machinery handles back-navigation the
+     * same way as drilling in from the root - the back button is enabled and
+     * climbs one level at a time. Without this, opening a registered subfolder
+     * directly from the sidebar would land on a FolderView with cwdRel="" and
+     * leave the back button permanently disabled.
      */
     const selectFolder = useCallback(
         (tool: Tool, folder: ToolFolder) => {
+            const previousPath = selRef.current?.file.path;
+            if (previousPath) {
+                recentSavesRef.current.delete(previousPath);
+            }
             setSel(null);
             clearDirty();
             setExternal(false);
-            setSelFolder({ tool, folder, dir: "" });
+
+            const rootFolder = (tool.folders ?? []).find(
+                (f) => f.id === `${tool.id}/folder-root`,
+            );
+            let target = folder;
+            let dir = "";
+            if (rootFolder && rootFolder.id !== folder.id) {
+                const rootN = normPath(rootFolder.path);
+                const folderN = normPath(folder.path);
+                if (
+                    folderN.length > rootN.length &&
+                    folderN.startsWith(rootN) &&
+                    (folderN.charAt(rootN.length) === "\\" ||
+                        rootN.endsWith("\\"))
+                ) {
+                    const remainder = folder.path.slice(rootFolder.path.length);
+                    dir = remainder
+                        .split(/[\\/]+/)
+                        .filter(Boolean)
+                        .join("/");
+                    target = rootFolder;
+                }
+            }
+
+            setSelFolder({ tool, folder: target, dir });
         },
         [clearDirty],
     );
@@ -277,10 +348,33 @@ function AppContent(): JSX.Element {
             if (!cur || normPath(changed) !== normPath(cur.file.path)) return;
             void window.api
                 .fileStat(cur.file.path)
-                .then((st) => {
+                .then(async (st) => {
                     if (!st) return;
                     if (st.mtime === cur.mtime && st.size === cur.size) return;
                     if (!dirtyRef.current) {
+                        // Backstop: the main-side recentWrites map is the primary defense for self-saves.
+                        const expected = recentSavesRef.current.get(
+                            cur.file.path,
+                        );
+                        if (
+                            expected !== undefined &&
+                            expected.until > Date.now()
+                        ) {
+                            try {
+                                const r = await window.api.readFile(
+                                    cur.file.path,
+                                );
+                                if (r.content === expected.content) {
+                                    recentSavesRef.current.delete(
+                                        cur.file.path,
+                                    );
+                                    return;
+                                }
+                            } catch {
+                                // Fall through to the existing reload path
+                                // when the read fails.
+                            }
+                        }
                         applySelection(cur.tool, cur.file);
                     } else {
                         setExternal(true);
@@ -307,6 +401,10 @@ function AppContent(): JSX.Element {
             if (res.ok) {
                 clearDirty();
                 setExternal(false);
+                recentSavesRef.current.set(sel.file.path, {
+                    content,
+                    until: Date.now() + 2000,
+                });
                 let size = new Blob([content]).size;
                 let mtime = Date.now();
                 try {
@@ -319,7 +417,7 @@ function AppContent(): JSX.Element {
                     // Keep the local Blob size/mtime estimate on stat failure.
                 }
                 setSel((cur) =>
-                    cur ? { ...cur, exists: true, content, size, mtime } : cur,
+                    cur ? { ...cur, exists: true, size, mtime } : cur,
                 );
                 toast.success(
                     res.created
@@ -347,6 +445,37 @@ function AppContent(): JSX.Element {
         applySelection(sel.tool, sel.file);
     }, [sel, applySelection]);
 
+    /**
+     * Formats the current editor content in memory with prettier (or
+     * @iarna/toml for TOML) and replaces the editor doc. Nothing is written
+     * to disk; the user still saves with Ctrl+S.
+     */
+    const handleFormat = useCallback(async () => {
+        const cur = selRef.current;
+        if (!cur) return;
+        if (cur.file.lang === "dotenv" || cur.file.lang === "text") return;
+        if (formattingRef.current) return;
+        const current = editorRef.current?.getContent() ?? "";
+        formattingRef.current = true;
+        setFormatting(true);
+        try {
+            const result = await formatDocument(current, cur.file.lang);
+            if (result.ok) {
+                if (result.content === current) {
+                    toast.info("Already formatted");
+                } else {
+                    editorRef.current?.applyEdit(result.content);
+                    toast.success("Formatted - press Ctrl+S to save");
+                }
+            } else {
+                toast.error(result.error);
+            }
+        } finally {
+            formattingRef.current = false;
+            setFormatting(false);
+        }
+    }, [toast]);
+
     useEffect(() => {
         const h = (e: KeyboardEvent): void => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -357,6 +486,21 @@ function AppContent(): JSX.Element {
         window.addEventListener("keydown", h);
         return () => window.removeEventListener("keydown", h);
     }, [handleSave]);
+
+    useEffect(() => {
+        const h = (e: KeyboardEvent): void => {
+            if (
+                (e.ctrlKey || e.metaKey) &&
+                e.shiftKey &&
+                e.key.toLowerCase() === "f"
+            ) {
+                e.preventDefault();
+                void handleFormat();
+            }
+        };
+        window.addEventListener("keydown", h);
+        return () => window.removeEventListener("keydown", h);
+    }, [handleFormat]);
 
     const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
     const visible = useMemo(
@@ -399,33 +543,60 @@ function AppContent(): JSX.Element {
                     onSelect={(t, f) => selectFile(t, f)}
                     onSelectFolder={(t, f) => selectFolder(t, f)}
                     onManage={() => setModal("settings")}
+                    collapsed={sidebarCollapsed}
+                    onToggle={() => setSidebarCollapsed((c) => !c)}
                 />
 
                 <main className="flex min-w-0 flex-1 flex-col bg-app">
                     {sel ? (
-                        <EditorPane
-                            key={`${sel.file.id}:${reloadNonce}`}
-                            ref={editorRef}
-                            lang={sel.file.lang}
-                            mode={mode}
-                            initialContent={sel.content}
-                            reloadKey={`${sel.file.id}:${reloadNonce}`}
-                            onDirty={markDirty}
-                            onSave={() => void handleSave()}
-                            unsaved={dirty}
-                            filePath={sel.file.path}
-                            parentLabel={sel.file.parentLabel}
-                            onBack={sel.selFolderRef ? backToFolder : undefined}
-                            fileExists={sel.exists}
-                            fileSecret={sel.file.secret}
-                            fileNote={sel.file.note}
-                            externalChange={external}
-                            fileSize={sel.size}
-                            fileMtime={sel.mtime}
-                            onHistoryClick={() => setModal("history")}
-                            onReloadClick={() => handleRevert()}
-                            onDelete={() => setConfirmDelete(true)}
-                        />
+                        <div className="flex min-h-0 flex-1">
+                            <div className="flex min-w-0 flex-1 flex-col">
+                                <EditorPane
+                                    key={`${sel.file.id}:${reloadNonce}`}
+                                    ref={editorRef}
+                                    lang={sel.file.lang}
+                                    mode={mode}
+                                    softWrap={settings?.softWrap ?? true}
+                                    initialContent={sel.content}
+                                    reloadKey={`${sel.file.id}:${reloadNonce}`}
+                                    onDirty={markDirty}
+                                    onSave={() => void handleSave()}
+                                    onFormat={() => void handleFormat()}
+                                    formatting={formatting}
+                                    onChange={
+                                        sel.file.lang === "markdown"
+                                            ? handleEditorChange
+                                            : undefined
+                                    }
+                                    unsaved={dirty}
+                                    filePath={sel.file.path}
+                                    parentLabel={sel.file.parentLabel}
+                                    onBack={
+                                        sel.selFolderRef
+                                            ? backToFolder
+                                            : undefined
+                                    }
+                                    fileExists={sel.exists}
+                                    fileSecret={sel.file.secret}
+                                    fileNote={sel.file.note}
+                                    externalChange={external}
+                                    fileSize={sel.size}
+                                    fileMtime={sel.mtime}
+                                    onHistoryClick={() => setModal("history")}
+                                    onReloadClick={() => handleRevert()}
+                                    onDelete={() => setConfirmDelete(true)}
+                                />
+                            </div>
+                            {sel.file.lang === "markdown" && (
+                                <>
+                                    <div className="w-px shrink-0 bg-line" />
+                                    <PreviewPane
+                                        content={liveContent ?? sel.content}
+                                        lang={sel.file.lang}
+                                    />
+                                </>
+                            )}
+                        </div>
                     ) : selFolder ? (
                         <FolderView
                             key={`${selFolder.folder.path}:${selFolder.dir}`}
@@ -504,6 +675,7 @@ function AppContent(): JSX.Element {
                                     }
                                     setSel({ ...sel, content: c });
                                     setReloadNonce((n) => n + 1);
+                                    setLiveContent(null);
                                     markDirty();
                                 }}
                                 onRestored={() =>

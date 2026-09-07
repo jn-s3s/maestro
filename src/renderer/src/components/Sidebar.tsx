@@ -1,6 +1,7 @@
 import { memo, useState, type JSX } from "react";
 import {
     ChevronDown,
+    ChevronLeft,
     ChevronRight,
     Folder,
     Lock,
@@ -220,6 +221,8 @@ interface Props {
     onSelect: (tool: Tool, file: ToolFile) => void;
     onSelectFolder: (tool: Tool, folder: ToolFolder) => void;
     onManage: () => void;
+    collapsed: boolean;
+    onToggle: () => void;
 }
 
 /**
@@ -231,6 +234,8 @@ interface Props {
  * @param onSelect - Selects a config file.
  * @param onSelectFolder - Selects a tool folder.
  * @param onManage - Opens the settings modal.
+ * @param collapsed - Whether the whole sidebar is collapsed to a thin rail.
+ * @param onToggle - Flips the whole-sidebar collapsed state.
  */
 export default function Sidebar({
     tools,
@@ -239,8 +244,12 @@ export default function Sidebar({
     onSelect,
     onSelectFolder,
     onManage,
+    collapsed,
+    onToggle,
 }: Props): JSX.Element {
-    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+    const [groupCollapsed, setGroupCollapsed] = useState<
+        Record<string, boolean>
+    >({});
 
     const groups = ORDER.map((g) => ({
         group: g,
@@ -248,14 +257,41 @@ export default function Sidebar({
     })).filter((g) => g.items.length > 0);
 
     const toggle = (key: string): void =>
-        setCollapsed((c) => ({ ...c, [key]: !c[key] }));
+        setGroupCollapsed((c) => ({ ...c, [key]: !c[key] }));
+
+    if (collapsed) {
+        return (
+            <aside className="flex w-12 shrink-0 flex-col items-center border-r border-line bg-surface/50 py-3">
+                <button
+                    type="button"
+                    title="Expand sidebar"
+                    aria-label="Expand sidebar"
+                    aria-expanded={!collapsed}
+                    onClick={onToggle}
+                    className="rounded-lg p-2 text-secondary transition-colors hover:bg-raised hover:text-primary"
+                >
+                    <ChevronRight size={15} />
+                </button>
+            </aside>
+        );
+    }
 
     return (
         <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-surface/50">
-            <div className="border-b border-line px-4 py-3">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
                 <p className="text-[11px] text-faint">
                     {tools.length} tools · folders & files detected
                 </p>
+                <button
+                    type="button"
+                    title="Collapse sidebar"
+                    aria-label="Collapse sidebar"
+                    aria-expanded={!collapsed}
+                    onClick={onToggle}
+                    className="rounded-lg p-1 text-faint transition-colors hover:bg-raised hover:text-primary"
+                >
+                    <ChevronLeft size={14} />
+                </button>
             </div>
 
             <nav className="flex-1 overflow-y-auto px-2 py-3">
@@ -266,7 +302,7 @@ export default function Sidebar({
                     </p>
                 )}
                 {groups.map(({ group, items }) => {
-                    const groupCollapsed = collapsed[group] ?? false;
+                    const groupCollapsedState = groupCollapsed[group] ?? false;
                     return (
                         <div key={group} className="mb-4">
                             <button
@@ -274,7 +310,7 @@ export default function Sidebar({
                                 className="mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-1 text-left text-[10px] font-semibold tracking-wider text-faint uppercase transition-colors hover:bg-raised"
                                 onClick={() => toggle(group)}
                             >
-                                {groupCollapsed ? (
+                                {groupCollapsedState ? (
                                     <ChevronRight size={11} />
                                 ) : (
                                     <ChevronDown size={11} />
@@ -285,12 +321,12 @@ export default function Sidebar({
                                 </span>
                             </button>
 
-                            {!groupCollapsed &&
+                            {!groupCollapsedState &&
                                 items.map((tool) => (
                                     <ToolBlock
                                         key={tool.id}
                                         tool={tool}
-                                        open={!collapsed[tool.id]}
+                                        open={!groupCollapsed[tool.id]}
                                         onToggle={() => toggle(tool.id)}
                                         selectedId={selectedId}
                                         selectedFolderId={selectedFolderId}

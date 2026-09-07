@@ -45,6 +45,14 @@ import type {
 } from "../shared/types";
 import { langFromPath } from "../shared/types";
 
+/**
+ * Absolute paths recently written by this process, mapped to the timestamp
+ * (ms) at which their suppression expires. Recorded by `file:write` so the
+ * fs watcher does not echo our own atomic tmp+rename save back to the
+ * renderer as a change. Keys are lower-cased for Windows case-insensitivity.
+ */
+const recentWrites = new Map<string, number>();
+
 if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
@@ -126,16 +134,16 @@ if (!app.requestSingleInstanceLock()) {
 
     /**
      * Constructs the main BrowserWindow and loads the renderer entry.
+     * The minimum width is intentionally low (480) so the user can drag
+     * the window to roughly half the width of any common display.
      */
     function createWindow(): void {
         const dark = nativeTheme.shouldUseDarkColors;
         const workArea = screen.getPrimaryDisplay().workArea;
-        const targetWidth = Math.min(1240, workArea.width - 24);
-        const targetHeight = Math.min(820, workArea.height - 24);
         mainWindow = new BrowserWindow({
-            width: targetWidth,
-            height: targetHeight,
-            minWidth: 1000,
+            width: Math.min(1240, workArea.width - 24),
+            height: Math.min(820, workArea.height - 24),
+            minWidth: 480,
             minHeight: 600,
             maxHeight: workArea.height,
             show: false,
@@ -154,6 +162,19 @@ if (!app.requestSingleInstanceLock()) {
             },
         });
 
+        const devUrl = process.env.ELECTRON_RENDERER_URL;
+        mainWindow.webContents.on("will-navigate", (event, url) => {
+            const allowed = devUrl
+                ? url.startsWith(devUrl)
+                : url.startsWith("file://");
+            if (!allowed) {
+                event.preventDefault();
+            }
+        });
+        mainWindow.webContents.setWindowOpenHandler(() => ({
+            action: "deny",
+        }));
+
         mainWindow.on("ready-to-show", () => {
             mainWindow?.show();
         });
@@ -170,7 +191,6 @@ if (!app.requestSingleInstanceLock()) {
         });
 
         const themeParam = dark ? "dark" : "light";
-        const devUrl = process.env.ELECTRON_RENDERER_URL;
         if (devUrl) {
             void mainWindow.loadURL(`${devUrl}?theme=${themeParam}`);
         } else {
@@ -362,10 +382,34 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     /**
+     * Removes expired self-write suppression entries. Lazy cleanup on access.
+     *
+     * @param now - The current time in milliseconds.
+     */
+    function sweepRecentWrites(now: number): void {
+        for (const [key, expiry] of recentWrites) {
+            if (now >= expiry) {
+                recentWrites.delete(key);
+            }
+        }
+    }
+
+    /**
      * Coalesces rapid change events for one path into a single
      * `fs:changed` notification, debounced at 250ms.
      */
     function scheduleNotify(fullPath: string): void {
+        const now = Date.now();
+        sweepRecentWrites(now);
+        // Skip paths we just wrote ourselves; the file:write handler records
+        // them here so the watcher does not echo our own atomic save back.
+        // Entries are swept by the 1s TTL above, so a present entry is still
+        // unexpired. Leaving it in place (rather than deleting on first hit)
+        // handles the two-event atomic save (tmp write + rename) correctly.
+        const selfWriteKey = path.resolve(fullPath).toLowerCase();
+        if (recentWrites.get(selfWriteKey) !== undefined) {
+            return;
+        }
         const key = normalizeKey(fullPath);
         const existing = notifyTimers.get(key);
         if (existing) {
@@ -684,6 +728,12 @@ if (!app.requestSingleInstanceLock()) {
                         );
                     }
                 }
+                // Suppress the watcher echo for this self-write for 1s,
+                // long enough to outlast the 250ms debounce.
+                recentWrites.set(
+                    path.resolve(filePath).toLowerCase(),
+                    Date.now() + 1000,
+                );
                 return { ok: true, created, backupPath };
             },
         );
@@ -704,6 +754,30 @@ if (!app.requestSingleInstanceLock()) {
             }
             const err = await shell.openPath(p);
             return err ? { ok: false, error: err } : { ok: true };
+        });
+
+        safe("shell:openExternal", async (url: unknown) => {
+            if (typeof url !== "string") {
+                return { success: false, error: "Invalid URL" } as const;
+            }
+            let parsed: URL;
+            try {
+                parsed = new URL(url);
+            } catch {
+                return { success: false, error: "Invalid URL" } as const;
+            }
+            if (
+                parsed.protocol !== "http:" &&
+                parsed.protocol !== "https:" &&
+                parsed.protocol !== "mailto:"
+            ) {
+                return {
+                    success: false,
+                    error: "Unsupported URL scheme",
+                } as const;
+            }
+            await shell.openExternal(url);
+            return { success: true } as const;
         });
 
         safe("settings:get", (): AppSettings => loadSettings());
@@ -729,6 +803,12 @@ if (!app.requestSingleInstanceLock()) {
         safe("settings:closeToTray", (value: unknown): AppSettings => {
             const settings = loadSettings();
             settings.closeToTray = value === true;
+            return persist(settings);
+        });
+
+        safe("settings:softWrap", (value: unknown): AppSettings => {
+            const settings = loadSettings();
+            settings.softWrap = value !== false;
             return persist(settings);
         });
 
@@ -1006,44 +1086,44 @@ if (!app.requestSingleInstanceLock()) {
          * @returns Result indicating success or the reason for failure.
          */
         safe("file:rename", (rawPath: unknown, newName: unknown): OpResult => {
-                const src = assertRegistered(rawPath);
-                if (!fs.existsSync(src) || fs.statSync(src).isDirectory()) {
-                    return { ok: false, error: "File does not exist" };
-                }
-                if (registeredPaths(getTools()).has(normalizeKey(src))) {
-                    return {
-                        ok: false,
-                        error: "Root config files cannot be renamed here",
-                    };
-                }
-                const trimmed = typeof newName === "string" ? newName.trim() : "";
-                const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
-                if (
-                    !trimmed ||
-                    !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
-                    trimmed === "." ||
-                    trimmed === ".." ||
-                    trimmed.startsWith(".") ||
-                    trimmed.endsWith(".") ||
-                    trimmed.endsWith(" ") ||
-                    reserved.test(trimmed)
-                ) {
-                    return { ok: false, error: "Invalid file name" };
-                }
-                const dst = path.join(path.dirname(src), trimmed);
-                if (normalizeKey(dst) === normalizeKey(src)) {
-                    return { ok: true };
-                }
-                if (fs.existsSync(dst)) {
-                    return {
-                        ok: false,
-                        error: "A file with this name already exists",
-                    };
-                }
-                const validatedDst = canonicalize(dst);
-                fs.renameSync(src, validatedDst);
-                invalidateTools();
+            const src = assertRegistered(rawPath);
+            if (!fs.existsSync(src) || fs.statSync(src).isDirectory()) {
+                return { ok: false, error: "File does not exist" };
+            }
+            if (registeredPaths(getTools()).has(normalizeKey(src))) {
+                return {
+                    ok: false,
+                    error: "Root config files cannot be renamed here",
+                };
+            }
+            const trimmed = typeof newName === "string" ? newName.trim() : "";
+            const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+            if (
+                !trimmed ||
+                !/^[^\p{Control}\\/:*?"<>|]+$/u.test(trimmed) ||
+                trimmed === "." ||
+                trimmed === ".." ||
+                trimmed.startsWith(".") ||
+                trimmed.endsWith(".") ||
+                trimmed.endsWith(" ") ||
+                reserved.test(trimmed)
+            ) {
+                return { ok: false, error: "Invalid file name" };
+            }
+            const dst = path.join(path.dirname(src), trimmed);
+            if (normalizeKey(dst) === normalizeKey(src)) {
                 return { ok: true };
+            }
+            if (fs.existsSync(dst)) {
+                return {
+                    ok: false,
+                    error: "A file with this name already exists",
+                };
+            }
+            const validatedDst = canonicalize(dst);
+            fs.renameSync(src, validatedDst);
+            invalidateTools();
+            return { ok: true };
         });
 
         /**

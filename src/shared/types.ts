@@ -53,6 +53,7 @@ export interface AppSettings {
     version: number;
     theme: ThemeMode;
     closeToTray: boolean;
+    softWrap: boolean;
     historyResetDone: boolean;
     perFileHistoryResetDone: boolean;
     hiddenTools: string[];
@@ -121,11 +122,13 @@ export interface Api {
     readFile(path: string): Promise<ReadResult>;
     writeFile(path: string, content: string): Promise<WriteResult>;
     reveal(path: string): Promise<void>;
-    openExternal(path: string): Promise<OpResult>;
+    openFile(path: string): Promise<OpResult>;
+    openExternal(url: string): Promise<void>;
     getSettings(): Promise<AppSettings>;
     setHidden(toolIds: string[]): Promise<AppSettings>;
     setTheme(mode: ThemeMode): Promise<AppSettings>;
     setCloseToTray(value: boolean): Promise<AppSettings>;
+    setSoftWrap(value: boolean): Promise<AppSettings>;
     addCustom(name: string, path: string): Promise<OpResult>;
     removeCustom(id: string): Promise<AppSettings>;
     pushRecent(path: string): Promise<void>;

@@ -10,12 +10,14 @@ import {
     ExternalLink,
     FolderOpen,
     History,
+    Loader2,
     RefreshCw,
     RotateCcw,
     Save,
     Trash2,
     TriangleAlert,
     Info,
+    Wand,
 } from "lucide-react";
 import {
     Compartment,
@@ -50,15 +52,20 @@ function jsonc(): LanguageSupport {
 
 export interface EditorHandle {
     getContent(): string;
+    applyEdit(content: string): void;
 }
 
 interface Props {
     lang: FileLang;
     mode: "light" | "dark";
+    softWrap: boolean;
     initialContent: string;
     reloadKey: string;
     onDirty: () => void;
     onSave: () => void;
+    onFormat?: () => void;
+    formatting?: boolean;
+    onChange?: (content: string) => void;
     unsaved: boolean;
     parentLabel?: string;
     parentPath?: string;
@@ -109,6 +116,7 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
     const [themeComp] = useState(() => new Compartment());
+    const [wrapComp] = useState(() => new Compartment());
     const toast = useToast();
     const saveRef = useRef(props.onSave);
 
@@ -121,16 +129,34 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
         onInternalDirty.current = props.onDirty;
     }, [props.onDirty]);
 
+    const onChangeRef = useRef(props.onChange);
+    useEffect(() => {
+        onChangeRef.current = props.onChange;
+    }, [props.onChange]);
+
     const modeRef = useRef(props.mode);
     useEffect(() => {
         modeRef.current = props.mode;
     }, [props.mode]);
+
+    const softWrapRef = useRef(props.softWrap);
+    useEffect(() => {
+        softWrapRef.current = props.softWrap;
+    }, [props.softWrap]);
 
     useEffect(() => {
         viewRef.current?.dispatch({
             effects: themeComp.reconfigure(themeFor(props.mode)),
         });
     }, [props.mode, themeComp]);
+
+    useEffect(() => {
+        viewRef.current?.dispatch({
+            effects: wrapComp.reconfigure(
+                props.softWrap ? EditorView.lineWrapping : [],
+            ),
+        });
+    }, [props.softWrap, wrapComp]);
 
     useEffect(() => {
         if (!hostRef.current) return;
@@ -140,6 +166,9 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                 extensions: [
                     basicSetup,
                     themeComp.of(themeFor(modeRef.current)),
+                    wrapComp.of(
+                        softWrapRef.current ? EditorView.lineWrapping : [],
+                    ),
                     ...languageFor(props.lang),
                     Prec.high(
                         keymap.of([
@@ -153,7 +182,12 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                         ]),
                     ),
                     EditorView.updateListener.of((u) => {
-                        if (u.docChanged) onInternalDirty.current();
+                        if (u.docChanged) {
+                            onInternalDirty.current();
+                            if (onChangeRef.current) {
+                                onChangeRef.current(u.state.doc.toString());
+                            }
+                        }
                     }),
                 ],
             }),
@@ -164,12 +198,29 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
             view.destroy();
             viewRef.current = null;
         };
-    }, [props.reloadKey, props.initialContent, props.lang, themeComp]);
+    }, [
+        props.reloadKey,
+        props.initialContent,
+        props.lang,
+        themeComp,
+        wrapComp,
+    ]);
 
     useImperativeHandle(
         ref,
         () => ({
             getContent: () => viewRef.current?.state.doc.toString() ?? "",
+            applyEdit: (content) => {
+                const view = viewRef.current;
+                if (!view) return;
+                view.dispatch({
+                    changes: {
+                        from: 0,
+                        to: view.state.doc.length,
+                        insert: content,
+                    },
+                });
+            },
         }),
         [],
     );
@@ -227,11 +278,10 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                         disabled={!props.fileExists}
                         onClick={() =>
                             props.filePath &&
-                            window.api.openExternal(props.filePath).then(
-                                (r) => {
-                                    if (!r.ok && r.error) {
-                                        toast.error(r.error);
-                                    }
+                            window.api.openFile(props.filePath).then((r) => {
+                                if (!r.ok && r.error) {
+                                    toast.error(r.error);
+                                }
                             })
                         }
                         className={iconBtn}
@@ -257,6 +307,24 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                             <Trash2 size={15} />
                         </button>
                     )}
+                    <button
+                        type="button"
+                        title="Format document (Ctrl+Shift+F)"
+                        disabled={
+                            !props.onFormat ||
+                            props.formatting ||
+                            props.lang === "dotenv" ||
+                            props.lang === "text"
+                        }
+                        onClick={() => props.onFormat?.()}
+                        className={iconBtn}
+                    >
+                        {props.formatting ? (
+                            <Loader2 size={15} className="animate-spin" />
+                        ) : (
+                            <Wand size={15} />
+                        )}
+                    </button>
                     <button
                         type="button"
                         onClick={() => saveRef.current()}
