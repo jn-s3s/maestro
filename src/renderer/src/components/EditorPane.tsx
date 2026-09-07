@@ -345,8 +345,8 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
             {props.fileSecret && (
                 <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300">
                     <TriangleAlert size={13} className="shrink-0" />
-                    Contains secrets/tokens - every save creates a local backup
-                    that includes them.
+                    Contains secrets/tokens - backups of this file are encrypted
+                    at rest.
                 </div>
             )}
             {props.fileNote && (

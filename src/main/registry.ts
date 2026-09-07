@@ -572,6 +572,28 @@ export function findContainingFolder(
 }
 
 /**
+ * Reports whether a canonical path is registered as a secret-bearing file.
+ *
+ * @param tools - The detected tool list.
+ * @param filePath - Absolute path to look up.
+ * @returns True when the exact file is flagged secret.
+ */
+export function isSecretPath(tools: Tool[], filePath: string): boolean {
+    const key = path.normalize(canonicalPath(filePath)).toLowerCase();
+    for (const t of tools) {
+        for (const f of t.files) {
+            if (
+                f.secret === true &&
+                path.normalize(canonicalPath(f.path)).toLowerCase() === key
+            ) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
  * Collects every registered folder root, normalized for lookups.
  *
  * @param tools - The detected tool list.

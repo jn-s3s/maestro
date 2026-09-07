@@ -43,17 +43,16 @@ function withAlpha(hex: string, alpha: number): string {
 }
 
 /**
- * Builds a CodeMirror chrome theme that reads colors from CSS custom properties.
+ * Builds a CodeMirror chrome theme whose surface colors reference the app's
+ * CSS custom properties, so the browser resolves them live on theme changes.
+ * Accent-derived colors are computed from the accent hex because they need
+ * per-mode alpha values.
  *
  * @param accent - The accent color used for caret, selection, active line and matching brackets.
  * @param isDark - Whether the host UI is currently in dark mode.
  * @returns The CodeMirror theme extension.
  */
 function chromeTheme(accent: string, isDark: boolean): Extension {
-    const line = readCssVar("--line", isDark ? "#232329" : "#e4e4e7");
-    const surface = readCssVar("--surface", isDark ? "#111113" : "#ffffff");
-    const txt2 = readCssVar("--txt2", isDark ? "#a1a1aa" : "#52525b");
-    const app = readCssVar("--app", isDark ? "#09090b" : "#fafafa");
     const activeLine = withAlpha(accent, isDark ? 0.12 : 0.07);
     const selection = withAlpha(accent, isDark ? 0.28 : 0.2);
     const selectionInactive = withAlpha(accent, isDark ? 0.18 : 0.12);
@@ -96,15 +95,15 @@ function chromeTheme(accent: string, isDark: boolean): Extension {
                 color: "inherit",
             },
             ".cm-gutters": {
-                backgroundColor: surface,
-                color: txt2,
+                backgroundColor: "var(--surface)",
+                color: "var(--txt2)",
                 border: "none",
-                borderRight: `1px solid ${line}`,
+                borderRight: "1px solid var(--line)",
             },
             ".cm-foldPlaceholder": {
-                backgroundColor: surface,
-                color: txt2,
-                border: `1px solid ${line}`,
+                backgroundColor: "var(--surface)",
+                color: "var(--txt2)",
+                border: "1px solid var(--line)",
                 borderRadius: "4px",
                 padding: "0 4px",
             },
@@ -122,19 +121,19 @@ function chromeTheme(accent: string, isDark: boolean): Extension {
                 backgroundColor: withAlpha(accent, isDark ? 0.45 : 0.3),
             },
             ".cm-panels": {
-                backgroundColor: surface,
+                backgroundColor: "var(--surface)",
                 color: "inherit",
             },
             ".cm-panels.cm-panels-top": {
-                borderBottom: `1px solid ${line}`,
+                borderBottom: "1px solid var(--line)",
             },
             ".cm-panels.cm-panels-bottom": {
-                borderTop: `1px solid ${line}`,
+                borderTop: "1px solid var(--line)",
             },
             ".cm-tooltip": {
-                backgroundColor: surface,
+                backgroundColor: "var(--surface)",
                 color: "inherit",
-                border: `1px solid ${line}`,
+                border: "1px solid var(--line)",
                 borderRadius: "6px",
             },
             ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
@@ -142,7 +141,7 @@ function chromeTheme(accent: string, isDark: boolean): Extension {
                 color: "inherit",
             },
             ".cm-scroller::-webkit-scrollbar-track": {
-                backgroundColor: app,
+                backgroundColor: "var(--app)",
             },
         },
         { dark: isDark },

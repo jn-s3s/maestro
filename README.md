@@ -35,7 +35,7 @@ Maestro is a Windows desktop app that detects config files and folders for popul
 - Optional soft wrapping for long editor lines, enabled from Settings
 - Folder browser with drill-down navigation, file and folder creation, rename, delete and reveal in Explorer via inline controls, keyboard shortcuts and a right-click context menu
 - Automatic backups with deduplication, history browsing, diff against the live editor, restore, delete and load into editor
-- Secret files are flagged so you know which entries hold tokens and API keys
+- Secret files are flagged so you know which entries hold tokens and API keys, and their backups are encrypted at rest with OS-managed keys (DPAPI on Windows)
 - Custom entries for any other config file or folder on disk
 - System, light and dark themes with a system tray that keeps the app in the background and surfaces recent files
 - Hide tools you do not use, switch to close to tray, and jump back to the last five files you opened from the tray menu
@@ -52,7 +52,7 @@ All persistent state (settings, custom entries, recent files, backups, logs) liv
 Inside the data root:
 
 - `settings.json` holds theme, tray, hidden tools, recent files and custom entries.
-- `backups\<basename>-<12-char-sha1>\` stores the per-file backup snapshots, capped at 20 per file with deduplication.
+- `backups\<basename>-<12-char-sha1>\` stores the per-file backup snapshots, capped at 20 per file with deduplication. Snapshots of secret-flagged files are stored encrypted and can only be decrypted by the same Windows user account that created them.
 - `logs\main.log` is the rotating main process log (rotated to `main.log.old` at 512 KB).
 
 Use `pnpm clear` during development to reset just the `backups/` and `logs/` folders (it leaves `settings.json` alone, dry-runs by default and only deletes when you pass `--yes`), and `pnpm logs` to print the log lines together with the settings path and the full backup tree.

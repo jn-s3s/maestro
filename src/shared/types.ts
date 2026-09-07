@@ -67,6 +67,7 @@ export interface AppSettings {
     softWrap: boolean;
     historyResetDone: boolean;
     perFileHistoryResetDone: boolean;
+    secretBackupsEncrypted: boolean;
     hiddenTools: string[];
     recentFiles: string[];
     custom: CustomEntry[];

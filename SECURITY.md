@@ -35,4 +35,4 @@ Please do not disclose the issue publicly until a fix has been released.
 
 ## Scope notes
 
-Maestro reads and writes AI agent configuration files on disk, some of which contain secrets (API keys, OAuth tokens). Reports involving exfiltration of those files beyond what the app legitimately does, injection through custom entries, or unsafe path handling in the IPC surface are all in scope.
+Maestro reads and writes AI agent configuration files on disk, some of which contain secrets (API keys, OAuth tokens). Reports involving exfiltration of those files beyond what the app legitimately does, injection through custom entries, or unsafe path handling in the IPC surface are all in scope. Backups of secret-flagged files are encrypted at rest with OS-managed keys; bypasses of that encryption or plaintext leakage through the backup flow are also in scope.

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { safeStorage } from "electron";
 import type { AppSettings, CustomEntry, ThemeMode } from "../shared/types";
 
 // Canonical Maestro data root. Keep in sync with the same expression in
@@ -12,6 +13,12 @@ export const DATA_ROOT = path.join(BASE_DIR, "maestro");
 const SETTINGS_FILE = path.join(DATA_ROOT, "settings.json");
 export const BACKUPS_ROOT = path.join(DATA_ROOT, "backups");
 const LOGS_DIR = path.join(DATA_ROOT, "logs");
+
+/**
+ * Marker prefix identifying an encrypted backup blob, followed by base64
+ * encoded safe storage ciphertext.
+ */
+export const BACKUP_ENC_PREFIX = "maestro-enc:v1:";
 
 const THEMES: ThemeMode[] = ["system", "light", "dark"];
 
@@ -29,6 +36,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     softWrap: true,
     historyResetDone: false,
     perFileHistoryResetDone: false,
+    secretBackupsEncrypted: false,
     hiddenTools: [],
     recentFiles: [],
     custom: [],
@@ -83,6 +91,7 @@ export function loadSettings(): AppSettings {
         softWrap: obj.softWrap !== false,
         historyResetDone: obj.historyResetDone === true,
         perFileHistoryResetDone: obj.perFileHistoryResetDone === true,
+        secretBackupsEncrypted: obj.secretBackupsEncrypted === true,
         hiddenTools: stringArray(obj.hiddenTools),
         recentFiles: stringArray(obj.recentFiles),
         custom: customEntries(obj.custom),
@@ -159,6 +168,81 @@ export function pushRecent(list: string[], filePath: string): string[] {
 }
 
 /**
+ * Encrypts backup text into the versioned on-disk blob format using the
+ * OS provided safe storage (DPAPI on Windows).
+ *
+ * @param text - The plaintext backup content.
+ * @returns The marked blob to persist.
+ */
+export function encodeStoredBackup(text: string): string {
+    return (
+        BACKUP_ENC_PREFIX + safeStorage.encryptString(text).toString("base64")
+    );
+}
+
+/**
+ * Decodes stored backup text, decrypting marked blobs. Plaintext content
+ * passes through unchanged so legacy backups stay readable.
+ *
+ * @param text - The raw stored backup text.
+ * @returns The decrypted plaintext.
+ * @throws When a marked blob cannot be decrypted on this machine.
+ */
+export function decodeStoredBackup(text: string): string {
+    if (!text.startsWith(BACKUP_ENC_PREFIX)) return text;
+    try {
+        return safeStorage.decryptString(
+            Buffer.from(text.slice(BACKUP_ENC_PREFIX.length), "base64"),
+        );
+    } catch {
+        throw new Error("Backup cannot be decrypted on this machine");
+    }
+}
+
+/**
+ * Returns the file size, or null when the file cannot be stat'd.
+ *
+ * @param p - Absolute path to inspect.
+ * @returns The size in bytes, or null.
+ */
+function stat(p: string): number | null {
+    try {
+        return fs.statSync(p).size;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Reads a file as UTF-8 text, returning null on failure.
+ *
+ * @param p - Absolute path to read.
+ * @returns The text content, or null.
+ */
+function readUtf8(p: string): string | null {
+    try {
+        return fs.readFileSync(p, "utf8");
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Reads stored backup text and decodes it, returning null when the file
+ * cannot be read or decrypted.
+ *
+ * @param p - Absolute path of the stored backup.
+ * @returns The decoded plaintext, or null.
+ */
+function readStoredText(p: string): string | null {
+    try {
+        return decodeStoredBackup(fs.readFileSync(p, "utf8"));
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Computes a stable, hashed backup directory for a file.
  *
  * @param filePath - Absolute path of the source file.
@@ -180,49 +264,69 @@ export function backupDirForFile(filePath: string): string {
 }
 
 /**
- * Snapshots a file into its backup directory before it is changed.
+ * Snapshots a file into its backup directory before it is changed. Secret
+ * files are stored encrypted through safe storage; when encryption is
+ * unavailable the backup is skipped instead of writing plaintext secrets.
  *
  * @param filePath - Absolute path of the file to protect.
- * @returns The snapshot path when created, or null when the content is unchanged.
+ * @param options - `secret` enables encryption, `fd` pins the source handle.
+ * @returns The snapshot path when created, or null when skipped or unchanged.
  */
-export function backupFile(filePath: string): string | null {
-    const stat = (p: string): number | null => {
-        try {
-            return fs.statSync(p).size;
-        } catch {
-            return null;
-        }
-    };
-    const readUtf8 = (p: string): string | null => {
-        try {
-            return fs.readFileSync(p, "utf8");
-        } catch {
-            return null;
-        }
-    };
+export function backupFile(
+    filePath: string,
+    options: { secret?: boolean; fd?: number | null } = {},
+): string | null {
+    const secret = options.secret === true;
+    if (secret && !safeStorage.isEncryptionAvailable()) {
+        logError(
+            "backup-encrypt",
+            `Encryption unavailable; skipped secret backup for ${filePath}`,
+        );
+        return null;
+    }
 
-    const currentSize = stat(filePath);
-    if (currentSize === null) return null;
+    // Prefer the locked descriptor from the caller so a racing symlink swap
+    // cannot redirect the snapshot at a different file.
+    let currentSize: number | null = null;
+    let current: string | null = null;
+    if (typeof options.fd === "number") {
+        try {
+            const st = fs.fstatSync(options.fd);
+            currentSize = st.size;
+            current = fs.readFileSync(options.fd, "utf8");
+        } catch {
+            currentSize = null;
+            current = null;
+        }
+    }
+    if (currentSize === null) {
+        currentSize = stat(filePath);
+        if (currentSize === null) return null;
+    }
+    if (current === null) {
+        current = readUtf8(filePath);
+        if (current === null) return null;
+    }
 
     const dir = backupDirForFile(filePath);
     fs.mkdirSync(dir, { recursive: true });
 
     const all = fs.readdirSync(dir).sort();
     const latest = all[all.length - 1];
-    let current: string | null = null;
     if (latest) {
-        const prevSize = stat(path.join(dir, latest));
-        if (prevSize !== null && prevSize === currentSize) {
-            const prev = readUtf8(path.join(dir, latest));
-            current = readUtf8(filePath);
-            if (prev !== null && current !== null && prev === current) {
-                return null;
+        const latestPath = path.join(dir, latest);
+        if (secret) {
+            // Encrypted blobs are non-deterministic, so dedup compares
+            // decrypted content instead of file sizes.
+            const prev = readStoredText(latestPath);
+            if (prev !== null && prev === current) return null;
+        } else {
+            const prevSize = stat(latestPath);
+            if (prevSize !== null && prevSize === currentSize) {
+                const prev = readStoredText(latestPath);
+                if (prev !== null && prev === current) return null;
             }
         }
-    }
-    if (current === null) {
-        current = readUtf8(filePath);
-        if (current === null) return null;
     }
 
     const d = new Date();
@@ -231,7 +335,11 @@ export function backupFile(filePath: string): string | null {
         d.getMinutes(),
     )}-${pad2(d.getSeconds())}-${String(d.getMilliseconds()).padStart(3, "0")}`;
     const dest = path.join(dir, `${stamp}_${path.basename(filePath)}`);
-    fs.copyFileSync(filePath, dest);
+    if (secret) {
+        fs.writeFileSync(dest, encodeStoredBackup(current), "utf8");
+    } else {
+        fs.writeFileSync(dest, current, "utf8");
+    }
     pruneBackups(dir, 20);
     return dest;
 }
