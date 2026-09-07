@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Live Markdown preview with GitHub Flavored Markdown support
+- In-editor formatting for JSON, JSONC, YAML, TOML and Markdown
+- Optional soft wrapping for long editor lines
+
+### Fixed
+
+- Editor cursor and selection now stay at their original position after saving a file, instead of jumping to the start of the document
+- Saves no longer appear as external file changes because writes use a temporary file and atomic rename
+- Markdown links no longer navigate the app window and instead open in the default browser
+
+### Changed
+
+- The minimum window width is now 480 pixels
+- Registered subfolders opened from the sidebar now keep normal folder navigation and back-button behavior
+
+### Security
+
+- Backups of secret-flagged config files are now encrypted at rest with OS-managed keys (DPAPI on Windows); existing plaintext secret backups are migrated in place on first launch, and no backup is written when encryption is unavailable
+- Config file reads, backup snapshots and destructive file operations are hardened against symlink swap races inside registered folders, and new files are created exclusively so planted symlinks cannot be followed
+- DevTools are disabled in packaged builds and window navigation is locked to the app's own entry page
+- The packaged renderer CSP no longer allows websocket connections to arbitrary hosts (development still allows the Vite HMR websocket on localhost)
+
 ## [1.0.0] - 2026-08-29
 
 ### Added
