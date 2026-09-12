@@ -27,28 +27,15 @@ import {
 } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
-import { json, jsonLanguage } from "@codemirror/lang-json";
+import { json } from "@codemirror/lang-json";
+import { jsonc } from "@shopify/lang-jsonc";
 import { yaml } from "@codemirror/lang-yaml";
 import { markdown } from "@codemirror/lang-markdown";
-import { LanguageSupport } from "@codemirror/language";
 import type { FileLang } from "../../../shared/types";
 import { fmtBytes, fmtTime, LANG_LABELS } from "../lib/format";
 import { editorTheme } from "./editor/themes";
 import { toml } from "./editor/toml";
 import { useToast } from "./useToast";
-
-/**
- * JSONC support that layers line-comment language data on top of the JSON language.
- *
- * @returns A CodeMirror LanguageSupport for JSONC.
- */
-function jsonc(): LanguageSupport {
-    return new LanguageSupport(jsonLanguage, [
-        jsonLanguage.data.of({
-            commentTokens: { line: "//", block: { open: "/*", close: "*/" } },
-        }),
-    ]);
-}
 
 export interface EditorHandle {
     getContent(): string;

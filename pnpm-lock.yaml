@@ -38,6 +38,9 @@ importers:
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
+      '@shopify/lang-jsonc':
+        specifier: ^1.0.1
+        version: 1.0.1
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
@@ -1080,6 +1083,9 @@ packages:
     resolution: {integrity: sha512-at8QVep6S3h5Y6gSbdGU06bRY5WJkf6WUduM9YtvYMbYhB1MOFfUgc6kehitQXzOtMSaT70q7f9ydPhpqu821w==}
     cpu: [x64]
     os: [win32]
+
+  '@shopify/lang-jsonc@1.0.1':
+    resolution: {integrity: sha512-KrBrRFhvr1qJiZBODAtqbL1u1e67UR3plBN79Z8nd5TQAAzpx66jS4zs7Ss9M22ygGrpWFhyhSoNVlp5VCYktQ==}
 
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
@@ -3853,6 +3859,11 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.63.1':
     optional: true
+
+  '@shopify/lang-jsonc@1.0.1':
+    dependencies:
+      '@lezer/highlight': 1.2.3
+      '@lezer/lr': 1.4.10
 
   '@sindresorhus/is@4.6.0': {}
 

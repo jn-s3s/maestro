@@ -8,7 +8,6 @@ import * as estreePlugin from "prettier/plugins/estree";
 import * as yamlPlugin from "prettier/plugins/yaml";
 import * as markdownPlugin from "prettier/plugins/markdown";
 import type { FileLang } from "../../../shared/types";
-import { prepareJsoncForFormat } from "../../../shared/jsonc";
 import { LANG_LABELS } from "./format";
 
 export type FormatResult =
@@ -20,11 +19,9 @@ const MARKDOWN_PLUGINS = [markdownPlugin];
 
 /**
  * Formats document content for the given language with prettier, or with
- * @iarna/toml for TOML. JSONC formatting is supported only for files
- * without comments; files with comments are rejected to prevent silent
- * data loss, because the JSONC path strips comments and trailing commas
- * before formatting. Never throws; failures are returned as
- * `{ ok: false, error }`.
+ * @iarna/toml for TOML. JSONC formatting uses Prettier's native "jsonc"
+ * parser which preserves comments and trailing commas. Never throws;
+ * failures are returned as `{ ok: false, error }`.
  *
  * @param content - The raw editor content to format.
  * @param lang - The file language to format as.
@@ -46,24 +43,12 @@ export async function formatDocument(
                     }),
                 };
             case "jsonc": {
-                // JSONC has no prettier parser, so comments and trailing
-                // commas are stripped first and the cleaned source is
-                // formatted as plain JSON. This discards comments by design,
-                // so reject files that actually contain comments rather than
-                // silently destroying them.
-                const hasLineComment = /(^|[^:])\/\//m.test(content);
-                const hasBlockComment = /\/\*/.test(content);
-                if (hasLineComment || hasBlockComment) {
-                    return {
-                        ok: false,
-                        error: "JSONC formatting would remove comments. Remove them manually or convert to plain JSON before formatting.",
-                    };
-                }
-                const clean = prepareJsoncForFormat(content);
+                // JSONC is supported natively by Prettier via the "jsonc" parser,
+                // which preserves comments and trailing commas.
                 return {
                     ok: true,
-                    content: await prettier.format(clean, {
-                        parser: "json",
+                    content: await prettier.format(content, {
+                        parser: "jsonc",
                         plugins: JSON_PLUGINS,
                         tabWidth: 2,
                     }),
