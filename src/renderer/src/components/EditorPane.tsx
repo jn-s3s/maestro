@@ -368,11 +368,15 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
             {/* Editor */}
             <div
                 ref={hostRef}
+                data-testid="editor-host"
                 className="min-h-0 flex-1 overflow-hidden bg-app"
             />
 
             {/* Status Bar */}
-            <div className="flex items-center gap-4 border-t border-line bg-surface px-4 py-1.5 text-[11px] text-faint">
+            <div
+                data-testid="editor-statusbar"
+                className="flex items-center gap-4 border-t border-line bg-surface px-4 py-1.5 text-[11px] text-faint"
+            >
                 <span>{LANG_LABELS[props.lang] ?? props.lang}</span>
                 {props.fileExists && (
                     <span>

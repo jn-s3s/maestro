@@ -23,20 +23,21 @@ Useful commands:
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm dev`       | Run the app in development mode with hot reload                                                                                        |
 | `pnpm build`     | Production build to `out/`                                                                                                             |
+| `pnpm test`      | Run the Vitest unit test suite                                                                                                         |
 | `pnpm typecheck` | Typecheck both TypeScript projects                                                                                                     |
 | `pnpm lint`      | Lint the repo with ESLint (`pnpm lint:fix` to autofix)                                                                                 |
 | `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
 | `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
 | `pnpm dist`      | Regenerate icons, build and full packaged output into `release/`                                                                       |
 
-There is no test framework configured yet, so `pnpm typecheck` and `pnpm lint` are the verification gates. CI runs typecheck, lint and build on every push and pull request targeting `main`.
+Vitest is configured for main-process and renderer unit tests. Run `pnpm test` for the unit suite; CI runs test, typecheck, lint and build on every push and pull request targeting `main`.
 
 ## How to contribute
 
 1. Open an issue first for anything that changes behavior, so we can agree on the approach before you write code. Small fixes can go straight to a pull request.
 2. Fork the repo and create a branch from `main`. Name it after the change, for example `feat/custom-tool-groups` or `fix/diff-scroll-sync`.
 3. Make your changes. Follow the patterns in neighboring files and the tracked style configs (`.editorconfig`, `.prettierrc.json`, `eslint.config.mjs`, `tsconfig.node.json`, `tsconfig.web.json`).
-4. Run `pnpm typecheck`, `pnpm lint` and `pnpm build` and make sure all pass.
+4. Run `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm build` and make sure all pass.
 5. Open a pull request against `main` and fill in the template.
 
 ## Commit messages

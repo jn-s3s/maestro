@@ -44,7 +44,7 @@ After any code change, run in this order:
 2. Run the repo's `pnpm typecheck`.
 3. Run the repo's `pnpm lint`.
 
-All three MUST pass before a change is considered finished. There is no test framework configured in this repo. Do not invent or run a test command.
+All three MUST pass before a change is considered finished. The repo uses Vitest for unit tests (`pnpm test`, watch mode with `pnpm test:watch`); run the suite when it covers the area you changed.
 
 ## Repository Layout
 
