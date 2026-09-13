@@ -9,6 +9,7 @@ import type {
     ToolFolder,
 } from "../shared/types";
 import { langFromPath } from "../shared/types";
+import { logError } from "./store";
 
 const HOME = os.homedir();
 const APPDATA = process.env.APPDATA || path.join(HOME, "AppData", "Roaming");
@@ -20,14 +21,20 @@ const LOCALAPPDATA =
  * `fs.existsSync` can throw on malformed Windows paths, so each probe is
  * guarded.
  */
+function safeExists(filePath: string): boolean {
+    try {
+        return fs.existsSync(filePath);
+    } catch (err) {
+        logError(
+            "registry:exists",
+            `${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return false;
+    }
+}
+
 function firstExisting(...candidates: string[]): string | undefined {
-    return candidates.find((p) => {
-        try {
-            return fs.existsSync(p);
-        } catch {
-            return false;
-        }
-    });
+    return candidates.find((p) => safeExists(p));
 }
 
 /**
@@ -49,7 +56,7 @@ function xdgConfigHome(): string {
 /**
  * Resolves OpenCode's data directory. Prefers the XDG data root, then the
  * `~/.local/share/opencode` location some builds use, and finally falls back
- * to the first candidate so the sidebar surfaces it with `exists: false`.
+ * to the first candidate for stable path construction.
  */
 function opencodeDataDir(): string {
     const candidates = [
@@ -82,7 +89,7 @@ function makeFile(
         id,
         label,
         path: filePath,
-        exists: fs.existsSync(filePath),
+        exists: safeExists(filePath),
         lang: langFromPath(filePath),
         ...extra,
     };
@@ -98,7 +105,7 @@ function makeFolder(
         id,
         label,
         path: folderPath,
-        exists: fs.existsSync(folderPath),
+        exists: safeExists(folderPath),
         ...extra,
     };
 }
@@ -125,7 +132,8 @@ const RELOAD_NOTE =
  * them to the tool's `folders` array. Tools without `roots` are left unchanged.
  *
  * @param settings - Settings that carry the custom entries to include.
- * @returns The complete list of detected tools.
+ * @returns Detected built-in tools plus custom entries. Built-ins with no
+ * existing files or folders are omitted.
  */
 export function detectTools(settings: AppSettings): Tool[] {
     const tools: Tool[] = [];
@@ -392,7 +400,7 @@ export function detectTools(settings: AppSettings): Tool[] {
             dirName: "Code - Insiders",
         },
         { id: "vscodium", name: "VSCodium", dirName: "VSCodium" },
-    ].filter((f) => fs.existsSync(path.join(APPDATA, f.dirName, "User")));
+    ].filter((f) => safeExists(path.join(APPDATA, f.dirName, "User")));
 
     for (const f of flavors) {
         const userDir = path.join(APPDATA, f.dirName, "User");
@@ -443,7 +451,7 @@ export function detectTools(settings: AppSettings): Tool[] {
         );
         for (const e of extensions) {
             const extDir = path.join(globalStorage, e.folder);
-            if (!fs.existsSync(extDir)) continue;
+            if (!safeExists(extDir)) continue;
             const fp = path.join(extDir, ...e.file.split("/"));
             tools.push({
                 id: `${e.id}-${f.id}`,
@@ -525,7 +533,12 @@ export function detectTools(settings: AppSettings): Tool[] {
         t.folders = [...roots, ...(t.folders ?? [])];
     }
 
-    return tools;
+    return tools.filter(
+        (tool) =>
+            tool.group === "custom" ||
+            tool.files.some((file) => file.exists) ||
+            (tool.folders ?? []).some((folder) => folder.exists),
+    );
 }
 
 /**

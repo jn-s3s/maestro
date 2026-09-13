@@ -382,7 +382,10 @@ export default function Sidebar({
     return (
         <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-surface/50">
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
-                <p className="text-[11px] text-faint">
+                <p
+                    data-testid="sidebar-tool-count"
+                    className="text-[11px] text-faint"
+                >
                     {tools.length} tools · folders & files detected
                 </p>
                 <button
@@ -399,7 +402,10 @@ export default function Sidebar({
 
             <nav className="flex-1 overflow-y-auto px-2 py-3">
                 {groups.length === 0 && (
-                    <p className="px-3 py-6 text-xs leading-relaxed text-faint">
+                    <p
+                        data-testid="sidebar-empty"
+                        className="px-3 py-6 text-xs leading-relaxed text-faint"
+                    >
                         No tools detected yet. Config files appear here
                         automatically once their directories exist.
                     </p>

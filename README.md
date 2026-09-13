@@ -80,6 +80,7 @@ pnpm dev
 | `pnpm dev`       | Start Electron in development mode with hot reload                                                                                     |
 | `pnpm build`     | Production build to `out/`                                                                                                             |
 | `pnpm icon`      | Regenerate runtime icon assets from `resources/icon-source.png`                                                                        |
+| `pnpm test`      | Run the Vitest unit test suite                                                                                                         |
 | `pnpm typecheck` | Typecheck main/preload/shared and renderer projects                                                                                    |
 | `pnpm lint`      | Lint the repo with ESLint                                                                                                              |
 | `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
@@ -114,7 +115,7 @@ Electron 44 with electron-vite, React 19, TypeScript strict mode, Tailwind CSS v
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and conventions. Please follow Conventional Commits and make sure `pnpm typecheck` passes before opening a pull request.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and conventions. Please follow Conventional Commits and make sure `pnpm test`, `pnpm typecheck` and `pnpm lint` pass before opening a pull request.
 
 ## Security
 
