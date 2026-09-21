@@ -161,6 +161,22 @@ function canonicalPath(p: string): string {
     }
 }
 
+/**
+ * Lower-cases a string and collapses runs of non-alphanumeric characters
+ * into single hyphens, trimming edge hyphens.
+ *
+ * @param s - The string to slugify.
+ * @returns The slug, or "root" when the result would be empty.
+ */
+function slug(s: string): string {
+    return (
+        s
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/(^-|-$)/g, "") || "root"
+    );
+}
+
 const RELOAD_NOTE =
     "Reload the editor window after saving for changes to take effect.";
 
@@ -606,12 +622,6 @@ export function detectTools(settings: AppSettings): Tool[] {
             });
         }
     }
-
-    const slug = (s: string): string =>
-        s
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/(^-|-$)/g, "") || "root";
 
     for (const t of tools) {
         if (!t.roots?.length) continue;

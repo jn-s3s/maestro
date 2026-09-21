@@ -4,9 +4,11 @@ import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import prettier from "eslint-config-prettier";
+import oxlint from "eslint-plugin-oxlint";
 
-export default tseslint.config(
-    // Global ignores
+export default [
+    js.configs.recommended,
+    ...tseslint.configs.recommended,
     {
         ignores: [
             "node_modules/**",
@@ -16,13 +18,6 @@ export default tseslint.config(
             "resources/**",
         ],
     },
-
-    // Base JavaScript recommended rules
-    js.configs.recommended,
-
-    // TypeScript recommended rules
-    ...tseslint.configs.recommended,
-
     {
         files: ["**/*.{ts,tsx}"],
         languageOptions: {
@@ -90,4 +85,5 @@ export default tseslint.config(
             curly: ["error", "all"],
         },
     },
-);
+    oxlint.configs["flat/recommended"],
+].flat();

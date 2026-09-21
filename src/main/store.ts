@@ -153,6 +153,26 @@ export function logError(scope: string, detail: string): void {
 }
 
 /**
+ * Returns a normalized, lower-cased path for Windows-insensitive comparisons.
+ *
+ * @param p - The path to normalize.
+ * @returns The normalized, lower-cased path.
+ */
+function normPath(p: string): string {
+    return path.normalize(p).toLowerCase();
+}
+
+/**
+ * Zero-pads a number to two digits.
+ *
+ * @param n - The number to pad.
+ * @returns The padded string.
+ */
+function pad2(n: number): string {
+    return String(n).padStart(2, "0");
+}
+
+/**
  * Promotes a path to the front of the recent-file list.
  *
  * @param list - The current recent-file list.
@@ -160,11 +180,10 @@ export function logError(scope: string, detail: string): void {
  * @returns The updated list, capped at five entries.
  */
 export function pushRecent(list: string[], filePath: string): string[] {
-    const norm = (p: string): string => path.normalize(p).toLowerCase();
-    return [filePath, ...list.filter((x) => norm(x) !== norm(filePath))].slice(
-        0,
-        5,
-    );
+    return [
+        filePath,
+        ...list.filter((x) => normPath(x) !== normPath(filePath)),
+    ].slice(0, 5);
 }
 
 /**
@@ -249,7 +268,7 @@ function readStoredText(p: string): string | null {
  * @returns The backup directory inside the backups root.
  */
 export function backupDirForFile(filePath: string): string {
-    const norm = path.normalize(filePath).toLowerCase();
+    const norm = normPath(filePath);
     const hash = crypto
         .createHash("sha1")
         .update(norm)
@@ -311,7 +330,7 @@ export function backupFile(
     const dir = backupDirForFile(filePath);
     fs.mkdirSync(dir, { recursive: true });
 
-    const all = fs.readdirSync(dir).sort();
+    const all = fs.readdirSync(dir).toSorted();
     const latest = all[all.length - 1];
     if (latest) {
         const latestPath = path.join(dir, latest);
@@ -330,7 +349,6 @@ export function backupFile(
     }
 
     const d = new Date();
-    const pad2 = (n: number): string => String(n).padStart(2, "0");
     const stamp = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}_${pad2(d.getHours())}-${pad2(
         d.getMinutes(),
     )}-${pad2(d.getSeconds())}-${String(d.getMilliseconds()).padStart(3, "0")}`;
@@ -346,7 +364,7 @@ export function backupFile(
 
 function pruneBackups(dir: string, keep: number): void {
     try {
-        const entries = fs.readdirSync(dir).sort();
+        const entries = fs.readdirSync(dir).toSorted();
         while (entries.length > keep) {
             const oldest = entries.shift();
             if (oldest) {

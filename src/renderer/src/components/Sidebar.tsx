@@ -205,23 +205,23 @@ function buildSections(tool: Tool): SidebarSection[] {
     );
 
     return [...sections, other]
-        .map((section) => ({
-            ...section,
-            files: [...section.files].sort((a, b) =>
+        .filter(
+            (section) => section.files.length > 0 || section.folders.length > 0,
+        )
+        .map((section) => {
+            section.files = section.files.toSorted((a, b) =>
                 a.label.localeCompare(b.label),
-            ),
-            folders: [...section.folders].sort((a, b) => {
+            );
+            section.folders = section.folders.toSorted((a, b) => {
                 const aIsRoot = rootPaths.has(a.path);
                 const bIsRoot = rootPaths.has(b.path);
                 if (aIsRoot !== bIsRoot) {
                     return aIsRoot ? -1 : 1;
                 }
                 return a.label.localeCompare(b.label);
-            }),
-        }))
-        .filter(
-            (section) => section.files.length > 0 || section.folders.length > 0,
-        );
+            });
+            return section;
+        });
 }
 
 const ToolBlock = memo(function ToolBlock({

@@ -57,35 +57,130 @@ import { langFromPath } from "../shared/types";
  */
 const recentWrites = new Map<string, number>();
 
+/**
+ * Resolves the absolute path of a bundled resource, dev or packaged.
+ *
+ * @param name - File name under `resources/`.
+ * @returns The resolved filesystem path.
+ */
+function resourcePath(name: string): string {
+    return app.isPackaged
+        ? path.join(process.resourcesPath, "resources", name)
+        : path.join(app.getAppPath(), "resources", name);
+}
+
+/**
+ * Returns the title bar overlay options for the resolved theme.
+ *
+ * @param dark - Whether the host UI is in dark mode.
+ */
+function overlayColors(dark: boolean): Electron.TitleBarOverlayOptions {
+    return dark
+        ? { color: "#09090b", symbolColor: "#d4d4d8", height: 36 }
+        : { color: "#fafafa", symbolColor: "#52525b", height: 36 };
+}
+
+/**
+ * Pushes the current theme to every open renderer window.
+ */
+function broadcastTheme(): void {
+    for (const w of BrowserWindow.getAllWindows()) {
+        w.webContents.send("theme:changed", nativeTheme.shouldUseDarkColors);
+    }
+}
+
+/**
+ * Returns a normalized, lower-cased path key for set lookups.
+ * Lowercasing relies on Windows case-insensitive filesystems.
+ */
+function normalizeKey(p: string): string {
+    return path.normalize(p).toLowerCase();
+}
+
+/**
+ * Reports whether the leaf entry itself is a symlink or junction, using
+ * a no-follow check so planted reparse points cannot redirect file
+ * operations that would otherwise follow them.
+ *
+ * @param p - Absolute path to inspect.
+ * @returns True when the leaf is a reparse point.
+ */
+function isSymlinkLeaf(p: string): boolean {
+    try {
+        return fs.lstatSync(p).isSymbolicLink();
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Checks if a JSON-like string has excessive nesting depth.
+ * Counts opening brackets to estimate nesting level.
+ *
+ * @param content - The string content to check.
+ * @returns true if nesting appears excessive.
+ */
+function hasExcessiveNesting(content: string): boolean {
+    let depth = 0;
+    let maxDepth = 0;
+    for (let i = 0; i < content.length; i += 1) {
+        const ch = content[i];
+        if (ch === "{" || ch === "[") {
+            depth += 1;
+            if (depth > maxDepth) {
+                maxDepth = depth;
+            }
+        } else if (ch === "}" || ch === "]") {
+            depth = Math.max(0, depth - 1);
+        }
+    }
+    return maxDepth > 10000;
+}
+
+/**
+ * Registers an IPC handler that logs and rethrows any error.
+ *
+ * @param channel - The IPC channel name.
+ * @param fn - The async handler implementation.
+ */
+function safe(channel: string, fn: (...args: unknown[]) => unknown): void {
+    ipcMain.handle(channel, async (_e, ...args: unknown[]) => {
+        try {
+            return await fn(...args);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logError(
+                channel,
+                err instanceof Error ? (err.stack ?? message) : message,
+            );
+            // Sanitize the rethrow so the renderer only sees the message.
+            // Full stack is captured in the log above.
+            // eslint-disable-next-line preserve-caught-error
+            throw new Error(message);
+        }
+    });
+}
+
+/**
+ * Deletes the entire backups tree, used by the one-time history resets.
+ */
+function resetBackups(): void {
+    try {
+        fs.rmSync(BACKUPS_ROOT, { recursive: true, force: true });
+    } catch (err) {
+        logError(
+            "backup-reset",
+            err instanceof Error ? err.message : String(err),
+        );
+    }
+}
+
 if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     let mainWindow: BrowserWindow | null = null;
     let tray: Tray | null = null;
     let quitting = false;
-
-    /**
-     * Resolves the absolute path of a bundled resource, dev or packaged.
-     *
-     * @param name - File name under `resources/`.
-     * @returns The resolved filesystem path.
-     */
-    function resourcePath(name: string): string {
-        return app.isPackaged
-            ? path.join(process.resourcesPath, "resources", name)
-            : path.join(app.getAppPath(), "resources", name);
-    }
-
-    /**
-     * Returns the title bar overlay options for the resolved theme.
-     *
-     * @param dark - Whether the host UI is in dark mode.
-     */
-    function overlayColors(dark: boolean): Electron.TitleBarOverlayOptions {
-        return dark
-            ? { color: "#09090b", symbolColor: "#d4d4d8", height: 36 }
-            : { color: "#fafafa", symbolColor: "#52525b", height: 36 };
-    }
 
     /**
      * Refreshes the main window title bar overlay from the current theme.
@@ -100,18 +195,6 @@ if (!app.requestSingleInstanceLock()) {
             logError(
                 "titlebar-overlay",
                 err instanceof Error ? err.message : String(err),
-            );
-        }
-    }
-
-    /**
-     * Pushes the current theme to every open renderer window.
-     */
-    function broadcastTheme(): void {
-        for (const w of BrowserWindow.getAllWindows()) {
-            w.webContents.send(
-                "theme:changed",
-                nativeTheme.shouldUseDarkColors,
             );
         }
     }
@@ -334,54 +417,6 @@ if (!app.requestSingleInstanceLock()) {
         }
     }
 
-    /**
-     * Returns a normalized, lower-cased path key for set lookups.
-     * Lowercasing relies on Windows case-insensitive filesystems.
-     */
-    function normalizeKey(p: string): string {
-        return path.normalize(p).toLowerCase();
-    }
-
-    /**
-     * Reports whether the leaf entry itself is a symlink or junction, using
-     * a no-follow check so planted reparse points cannot redirect file
-     * operations that would otherwise follow them.
-     *
-     * @param p - Absolute path to inspect.
-     * @returns True when the leaf is a reparse point.
-     */
-    function isSymlinkLeaf(p: string): boolean {
-        try {
-            return fs.lstatSync(p).isSymbolicLink();
-        } catch {
-            return false;
-        }
-    }
-
-    /**
-     * Checks if a JSON-like string has excessive nesting depth.
-     * Counts opening brackets to estimate nesting level.
-     *
-     * @param content - The string content to check.
-     * @returns true if nesting appears excessive.
-     */
-    function hasExcessiveNesting(content: string): boolean {
-        let depth = 0;
-        let maxDepth = 0;
-        for (let i = 0; i < content.length; i += 1) {
-            const ch = content[i];
-            if (ch === "{" || ch === "[") {
-                depth += 1;
-                if (depth > maxDepth) {
-                    maxDepth = depth;
-                }
-            } else if (ch === "}" || ch === "]") {
-                depth = Math.max(0, depth - 1);
-            }
-        }
-        return maxDepth > 10000;
-    }
-
     let watcher: fs.FSWatcher | null = null;
     let watchDir: string | null = null;
     let watchBase = "";
@@ -506,31 +541,6 @@ if (!app.requestSingleInstanceLock()) {
             watchDir = null;
             logError("watch", err instanceof Error ? err.message : String(err));
         }
-    }
-
-    /**
-     * Registers an IPC handler that logs and rethrows any error.
-     *
-     * @param channel - The IPC channel name.
-     * @param fn - The async handler implementation.
-     */
-    function safe(channel: string, fn: (...args: unknown[]) => unknown): void {
-        ipcMain.handle(channel, async (_e, ...args: unknown[]) => {
-            try {
-                return await fn(...args);
-            } catch (err) {
-                const message =
-                    err instanceof Error ? err.message : String(err);
-                logError(
-                    channel,
-                    err instanceof Error ? (err.stack ?? message) : message,
-                );
-                // Sanitize the rethrow so the renderer only sees the message.
-                // Full stack is captured in the log above.
-                // eslint-disable-next-line preserve-caught-error
-                throw new Error(message);
-            }
-        });
     }
 
     /**
@@ -1302,16 +1312,6 @@ if (!app.requestSingleInstanceLock()) {
         .then(() => {
             const settings = loadSettings();
             let settingsDirty = false;
-            const resetBackups = (): void => {
-                try {
-                    fs.rmSync(BACKUPS_ROOT, { recursive: true, force: true });
-                } catch (err) {
-                    logError(
-                        "backup-reset",
-                        err instanceof Error ? err.message : String(err),
-                    );
-                }
-            };
             if (!settings.historyResetDone) {
                 resetBackups();
                 settings.historyResetDone = true;

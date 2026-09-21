@@ -205,8 +205,8 @@ function AppContent(): JSX.Element {
      * recording the parent folder for back navigation.
      */
     const applySelection = useCallback(
-        (tool: Tool, file: ToolFile, selFolderRef?: FolderContext) => {
-            if (!selFolderRef) {
+        (tool: Tool, file: ToolFile, folder?: FolderContext) => {
+            if (!folder) {
                 setSelFolder(null);
             }
             const previousPath = selRef.current?.file.path;
@@ -219,7 +219,7 @@ function AppContent(): JSX.Element {
                     setSel({
                         tool,
                         file,
-                        selFolderRef,
+                        selFolderRef: folder,
                         exists: r.exists,
                         content: r.content,
                         size: r.size,

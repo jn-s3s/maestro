@@ -132,7 +132,7 @@ export function listBackupsForFile(filePath: string): BackupEntry[] {
                 return [];
             }
         })
-        .sort((a, b) => b.mtime - a.mtime);
+        .toSorted((a, b) => b.mtime - a.mtime);
 }
 
 /**
