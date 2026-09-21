@@ -31,6 +31,8 @@ import { json } from "@codemirror/lang-json";
 import { jsonc } from "@shopify/lang-jsonc";
 import { yaml } from "@codemirror/lang-yaml";
 import { markdown } from "@codemirror/lang-markdown";
+import { python } from "@codemirror/lang-python";
+import { javascript } from "@codemirror/lang-javascript";
 import type { FileLang } from "../../../shared/types";
 import { fmtBytes, fmtTime, LANG_LABELS } from "../lib/format";
 import { editorTheme } from "./editor/themes";
@@ -84,6 +86,12 @@ function languageFor(lang: FileLang): Extension[] {
             return [toml()];
         case "markdown":
             return [markdown()];
+        case "javascript":
+            return [javascript({ jsx: true })];
+        case "typescript":
+            return [javascript({ jsx: true, typescript: true })];
+        case "python":
+            return [python()];
         default:
             return [];
     }
@@ -301,6 +309,8 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                             !props.onFormat ||
                             props.formatting ||
                             props.lang === "dotenv" ||
+                            props.lang === "python" ||
+                            props.lang === "shell" ||
                             props.lang === "text"
                         }
                         onClick={() => props.onFormat?.()}

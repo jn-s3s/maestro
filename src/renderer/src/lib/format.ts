@@ -35,6 +35,10 @@ export const LANG_LABELS: Record<FileLang, string> = {
     toml: "TOML",
     markdown: "Markdown",
     dotenv: "Dotenv",
+    javascript: "JavaScript",
+    typescript: "TypeScript",
+    python: "Python",
+    shell: "Shell",
     text: "Plain text",
 };
 

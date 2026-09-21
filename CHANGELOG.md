@@ -6,11 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Detection of Qoder CLI and Cline CLI configs
+
 ### Fixed
 
 - JSONC formatting now preserves comments and trailing commas instead of rejecting files with comments ("JSONC formatting would remove comments" error)
 - JSONC comments now render with proper syntax highlighting (previously showed as plain white text)
-
 
 ## [1.0.0] - 2026-08-29
 

@@ -72,6 +72,52 @@ function codexHome(): string {
     return path.join(HOME, ".codex");
 }
 
+/**
+ * Resolves Qoder's config directory. A non-empty QODER_CONFIG_DIR env var
+ * wins, otherwise the `~/.qoder` default, falling back to the `~/.qoder-cn`
+ * location used by the China edition.
+ */
+function qoderDir(): string {
+    const override = process.env.QODER_CONFIG_DIR?.trim();
+    if (override) {
+        return path.normalize(override);
+    }
+    return (
+        firstExisting(
+            path.join(HOME, ".qoder"),
+            path.join(HOME, ".qoder-cn"),
+        ) ?? path.join(HOME, ".qoder")
+    );
+}
+
+/**
+ * Resolves Cline CLI's root directory (the fixed `~/.cline` default).
+ */
+function clineRootDir(): string {
+    return path.join(HOME, ".cline");
+}
+
+/**
+ * Resolves Cline CLI's data directory. A non-empty CLINE_DATA_DIR env var
+ * wins (the only data-dir override Cline CLI documents), otherwise
+ * `~/.cline/data` under the fixed `~/.cline` root.
+ */
+function clineDataDir(): string {
+    const override = process.env.CLINE_DATA_DIR?.trim();
+    if (override) {
+        return path.normalize(override);
+    }
+    return path.join(HOME, ".cline", "data");
+}
+
+/**
+ * Resolves Cline CLI's sessions directory, derived from the data directory
+ * (`~/.cline/data/sessions` by default).
+ */
+function clineSessionsDir(): string {
+    return path.join(clineDataDir(), "sessions");
+}
+
 function makeFile(
     id: string,
     label: string,
@@ -359,6 +405,63 @@ export function detectTools(settings: AppSettings): Tool[] {
                 path.join(codexRoot, "skills"),
                 { section: "Config" },
             ),
+        ],
+    });
+
+    const qoderRoot = qoderDir();
+    tools.push({
+        id: "qoder-cli",
+        name: "Qoder CLI",
+        group: "cli",
+        subtitle: "~\\.qoder",
+        roots: [{ path: qoderRoot, section: "Config" }],
+        files: [
+            makeFile(
+                "qoder-cli/settings.json",
+                "settings.json",
+                path.join(qoderRoot, "settings.json"),
+                { section: "Config" },
+            ),
+        ],
+        folders: [
+            makeFolder(
+                "qoder-cli/folder-agents",
+                "agents",
+                path.join(qoderRoot, "agents"),
+                { section: "Config" },
+            ),
+            makeFolder(
+                "qoder-cli/folder-skills",
+                "skills",
+                path.join(qoderRoot, "skills"),
+                { section: "Config" },
+            ),
+            makeFolder(
+                "qoder-cli/folder-hooks",
+                "hooks",
+                path.join(qoderRoot, "hooks"),
+                { section: "Config" },
+            ),
+        ],
+    });
+
+    const clineRoot = clineRootDir();
+    const clineData = clineDataDir();
+    const clineSessions = clineSessionsDir();
+    tools.push({
+        id: "cline-cli",
+        name: "Cline CLI",
+        group: "cli",
+        subtitle: "~\\.cline",
+        roots: [
+            { path: clineRoot, section: "Config" },
+            { path: clineData, section: "Data" },
+        ],
+        files: [],
+        folders: [
+            makeFolder("cline-cli/folder-sessions", "sessions", clineSessions, {
+                section: "Data",
+            }),
         ],
     });
 

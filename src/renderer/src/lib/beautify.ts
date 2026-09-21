@@ -5,6 +5,7 @@
 import * as prettier from "prettier/standalone";
 import * as babelPlugin from "prettier/plugins/babel";
 import * as estreePlugin from "prettier/plugins/estree";
+import * as typescriptPlugin from "prettier/plugins/typescript";
 import * as yamlPlugin from "prettier/plugins/yaml";
 import * as markdownPlugin from "prettier/plugins/markdown";
 import type { FileLang } from "../../../shared/types";
@@ -13,7 +14,10 @@ import { LANG_LABELS } from "./format";
 export type FormatResult =
     { ok: true; content: string } | { ok: false; error: string };
 
-const JSON_PLUGINS = [babelPlugin, estreePlugin];
+// The babel plugin registers the json, jsonc and babel parsers; the estree
+// plugin supplies the shared AST printer, and the typescript plugin the TS
+// parser. All are needed by the switch below.
+const BABEL_PLUGINS = [babelPlugin, estreePlugin, typescriptPlugin];
 const YAML_PLUGINS = [yamlPlugin];
 const MARKDOWN_PLUGINS = [markdownPlugin];
 
@@ -38,7 +42,7 @@ export async function formatDocument(
                     ok: true,
                     content: await prettier.format(content, {
                         parser: "json",
-                        plugins: JSON_PLUGINS,
+                        plugins: BABEL_PLUGINS,
                         tabWidth: 2,
                     }),
                 };
@@ -49,7 +53,7 @@ export async function formatDocument(
                     ok: true,
                     content: await prettier.format(content, {
                         parser: "jsonc",
-                        plugins: JSON_PLUGINS,
+                        plugins: BABEL_PLUGINS,
                         tabWidth: 2,
                     }),
                 };
@@ -70,6 +74,24 @@ export async function formatDocument(
                         parser: "markdown",
                         plugins: MARKDOWN_PLUGINS,
                         proseWrap: "preserve",
+                    }),
+                };
+            case "javascript":
+                return {
+                    ok: true,
+                    content: await prettier.format(content, {
+                        parser: "babel",
+                        plugins: BABEL_PLUGINS,
+                        tabWidth: 4,
+                    }),
+                };
+            case "typescript":
+                return {
+                    ok: true,
+                    content: await prettier.format(content, {
+                        parser: "typescript",
+                        plugins: BABEL_PLUGINS,
+                        tabWidth: 4,
                     }),
                 };
             case "toml": {

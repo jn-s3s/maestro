@@ -1,5 +1,15 @@
 export type FileLang =
-    "json" | "jsonc" | "yaml" | "toml" | "markdown" | "dotenv" | "text";
+    | "json"
+    | "jsonc"
+    | "yaml"
+    | "toml"
+    | "markdown"
+    | "dotenv"
+    | "javascript"
+    | "typescript"
+    | "python"
+    | "shell"
+    | "text";
 
 /**
  * A multi-root directory entry, identifying the section a root belongs to.
@@ -124,6 +134,23 @@ export function langFromPath(filePath: string): FileLang {
         case ".md":
         case ".markdown":
             return "markdown";
+        case ".js":
+        case ".jsx":
+        case ".mjs":
+        case ".cjs":
+            return "javascript";
+        case ".ts":
+        case ".tsx":
+        case ".mts":
+        case ".cts":
+            return "typescript";
+        case ".py":
+            return "python";
+        case ".sh":
+        case ".bash":
+        case ".zsh":
+        case ".fish":
+            return "shell";
         default:
             return "text";
     }

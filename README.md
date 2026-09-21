@@ -22,6 +22,8 @@ Maestro is a Windows desktop app that detects config files and folders for popul
 | Claude Code                   | `settings.json`, `.claude.json`, commands, agents and skills folders     |
 | Gemini CLI                    | `settings.json`, `GEMINI.md`, commands folder                            |
 | Codex CLI                     | `config.toml`, `auth.json`, prompts folder                               |
+| Qoder CLI                     | `settings.json`, agents, skills and hooks folders                        |
+| Cline CLI                     | Session data under `~/.cline/data`                                       |
 | Continue                      | `config.yaml` plus legacy `config.json`                                  |
 | VS Code / Insiders / VSCodium | User `settings.json` for each installed flavor                           |
 | Cline / Roo Code / Kilo Code  | MCP settings per VS Code flavor                                          |

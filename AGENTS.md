@@ -8,7 +8,7 @@ Guidance for AI coding agents working in this repository. Read this file before 
 
 **Maestro** conducts all your AI coding agent configurations from one podium. It is a Windows desktop app that detects config files and folders for popular AI coding tools, then lets you view, edit, diff, back up and restore them from a single interface.
 
-Detected out of the box: OpenCode, Aider, Claude Code, Gemini CLI, Codex CLI, Continue, VS Code flavors (VS Code, Insiders, VSCodium), and the Cline, Roo Code and Kilo Code extensions. Users can register any other file or folder as a custom entry.
+Detected out of the box: OpenCode, Aider, Claude Code, Gemini CLI, Codex CLI, Qoder CLI, Cline CLI, Continue, VS Code flavors (VS Code, Insiders, VSCodium), and the Cline, Roo Code and Kilo Code extensions. Users can register any other file or folder as a custom entry.
 
 Core stack:
 
