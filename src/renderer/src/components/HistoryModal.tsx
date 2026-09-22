@@ -17,8 +17,8 @@ interface Props {
 }
 
 interface DiffLine {
-    t: "add" | "del" | "ctx";
-    s: string;
+    change: "add" | "del" | "ctx";
+    text: string;
 }
 
 /**
@@ -55,22 +55,29 @@ export default function HistoryModal({
     }, [file.path, toast]);
 
     const lines: DiffLine[] = useMemo(() => {
-        if (content == null || reference == null) return [];
+        if (content == null || reference == null) {
+            return [];
+        }
         // Normalize line endings so CRLF vs LF doesn't appear as a diff.
         // Added lines are the newer text; removed lines are what this backup replaced.
-        const normalize = (s: string): string => s.replace(/\r\n?/g, "\n");
+        const normalize = (text: string): string =>
+            text.replace(/\r\n?/g, "\n");
         const older = normalize(content);
         const newer = normalize(reference);
         const out: DiffLine[] = [];
         for (const part of diffLines(older, newer)) {
-            const kind: DiffLine["t"] = part.added
+            const change: DiffLine["change"] = part.added
                 ? "add"
                 : part.removed
                   ? "del"
                   : "ctx";
-            const ls = part.value.split("\n");
-            if (ls.length > 0 && ls[ls.length - 1] === "") ls.pop();
-            for (const s of ls) out.push({ t: kind, s: s.replace(/\r$/, "") });
+            const segments = part.value.split("\n");
+            if (segments.length && segments[segments.length - 1] === "") {
+                segments.pop();
+            }
+            for (const segment of segments) {
+                out.push({ change, text: segment.replace(/\r$/, "") });
+            }
         }
         return out;
     }, [content, reference]);
@@ -82,11 +89,13 @@ export default function HistoryModal({
         setContent(null);
         setReference(null);
         try {
-            const r = await window.api.readBackup(entry.path);
-            setContent(r.content);
+            const result = await window.api.readBackup(entry.path);
+            setContent(result.content);
             // Compare against the next-newer backup, or the live editor when none.
-            const idx = entries.findIndex((e) => e.path === entry.path);
-            const next = idx > 0 ? entries[idx - 1] : null;
+            const index = entries.findIndex(
+                (candidate) => candidate.path === entry.path,
+            );
+            const next = index > 0 ? entries[index - 1] : null;
             const nextContent = next
                 ? (await window.api.readBackup(next.path)).content
                 : getCurrent();
@@ -99,7 +108,9 @@ export default function HistoryModal({
     const removeBackup = async (entry: BackupEntry): Promise<void> => {
         try {
             await window.api.deleteBackup(entry.path);
-            setEntries((prev) => prev.filter((e) => e.path !== entry.path));
+            setEntries((prev) =>
+                prev.filter((candidate) => candidate.path !== entry.path),
+            );
             if (selected?.path === entry.path) {
                 setSelected(null);
                 setContent(null);
@@ -124,16 +135,18 @@ export default function HistoryModal({
     };
 
     const restore = async (): Promise<void> => {
-        if (content == null || busy) return;
+        if (content == null || busy) {
+            return;
+        }
         setBusy(true);
         try {
-            const res = await window.api.writeFile(file.path, content);
-            if (res.ok) {
+            const result = await window.api.writeFile(file.path, content);
+            if (result.ok) {
                 toast.success("Restored from backup");
                 onRestored();
                 onClose();
             } else {
-                toast.error(res.error);
+                toast.error(result.error);
             }
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
@@ -284,26 +297,28 @@ export default function HistoryModal({
                                                 Identical to the next version.
                                             </p>
                                         ) : (
-                                            visible.map((l, i) => (
+                                            visible.map((line, index) => (
                                                 <div
-                                                    key={i}
+                                                    key={index}
                                                     className={
-                                                        l.t === "add"
+                                                        line.change === "add"
                                                             ? "bg-emerald-500/10 px-2 text-emerald-700 dark:text-emerald-300"
-                                                            : l.t === "del"
+                                                            : line.change ===
+                                                                "del"
                                                               ? "bg-rose-500/10 px-2 text-rose-700 dark:text-rose-300"
                                                               : "px-2 text-faint"
                                                     }
                                                 >
                                                     <span className="mr-2 inline-block w-3 shrink-0 select-none opacity-70">
-                                                        {l.t === "add"
+                                                        {line.change === "add"
                                                             ? "+"
-                                                            : l.t === "del"
+                                                            : line.change ===
+                                                                "del"
                                                               ? "-"
                                                               : ""}
                                                     </span>
                                                     <span className="whitespace-pre-wrap break-all">
-                                                        {l.s}
+                                                        {line.text}
                                                     </span>
                                                 </div>
                                             ))

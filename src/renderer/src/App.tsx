@@ -34,9 +34,12 @@ const HistoryModal = lazy(() => import("./components/HistoryModal"));
 
 /**
  * Returns a Windows-friendly, lower-cased path for equality checks.
+ *
+ * @param target - The path to normalize.
+ * @returns The separator-normalized, lower-cased path.
  */
-function normPath(p: string): string {
-    return p.replace(/\//g, "\\").toLowerCase();
+function normPath(target: string): string {
+    return target.replace(/\//g, "\\").toLowerCase();
 }
 
 /**
@@ -44,19 +47,23 @@ function normPath(p: string): string {
  * Longest-prefix match against the tool's registered roots (not every
  * folder), so a registered subfolder cannot match itself and the
  * root-normalization in `selectFolder` stays meaningful.
+ *
+ * @param tool - The tool that owns the folder.
+ * @param folder - The folder to find a parent root for.
+ * @returns The closest registered root, or undefined when none contains it.
  */
 function containingRoot(
     tool: Tool,
     folder: ToolFolder,
 ): ToolFolder | undefined {
     const normFolder = normPath(folder.path);
-    let best: ToolFolder | undefined;
-    let bestLen = -1;
+    let bestMatch: ToolFolder | undefined;
+    let bestLength = -1;
     for (const root of tool.roots ?? []) {
         const normRoot = normPath(root.path);
         if (
             normFolder.startsWith(normRoot) &&
-            normRoot.length > bestLen &&
+            normRoot.length > bestLength &&
             // Reject false prefixes where one root path is a lexical prefix of
             // another (e.g. opencode vs opencode-evil). Same boundary rule the
             // main-process `findContainingFolder` applies via `path.sep`.
@@ -64,16 +71,16 @@ function containingRoot(
                 normFolder.charAt(normRoot.length) === "\\" ||
                 normFolder.charAt(normRoot.length) === "/")
         ) {
-            const synth = (tool.folders ?? []).find(
-                (f) => f.path === root.path,
+            const registered = (tool.folders ?? []).find(
+                (candidate) => candidate.path === root.path,
             );
-            if (synth) {
-                best = synth;
-                bestLen = normRoot.length;
+            if (registered) {
+                bestMatch = registered;
+                bestLength = normRoot.length;
             }
         }
     }
-    return best;
+    return bestMatch;
 }
 
 interface Selection {
@@ -165,31 +172,33 @@ function AppContent(): JSX.Element {
      * Re-fetches the tool list and hidden-tools setting in parallel.
      */
     const refresh = useCallback(async () => {
-        const [t, s] = await Promise.all([
+        const [toolsResult, settingsResult] = await Promise.all([
             window.api.listTools(),
             window.api.getSettings(),
         ]);
-        setTools(t.tools);
-        setHidden(s.hiddenTools);
-        setSettings(s);
+        setTools(toolsResult.tools);
+        setHidden(settingsResult.hiddenTools);
+        setSettings(settingsResult);
     }, []);
 
     useEffect(() => {
         let alive = true;
         void window.api
             .listTools()
-            .then((t) => {
-                if (alive) setTools(t.tools);
+            .then((result) => {
+                if (alive) {
+                    setTools(result.tools);
+                }
             })
             .catch((err) =>
                 toast.error(err instanceof Error ? err.message : String(err)),
             );
         void window.api
             .getSettings()
-            .then((s) => {
+            .then((result) => {
                 if (alive) {
-                    setHidden(s.hiddenTools);
-                    setSettings(s);
+                    setHidden(result.hiddenTools);
+                    setSettings(result);
                 }
             })
             .catch((err) =>
@@ -203,10 +212,14 @@ function AppContent(): JSX.Element {
     /**
      * Reads the file and updates the active selection, optionally
      * recording the parent folder for back navigation.
+     *
+     * @param tool - The tool that owns the selected file.
+     * @param file - The file entry to open.
+     * @param folder - Parent folder context, when opened from a folder view.
      */
     const applySelection = useCallback(
-        (tool: Tool, file: ToolFile, selFolderRef?: FolderContext) => {
-            if (!selFolderRef) {
+        (tool: Tool, file: ToolFile, folder?: FolderContext) => {
+            if (!folder) {
                 setSelFolder(null);
             }
             const previousPath = selRef.current?.file.path;
@@ -215,15 +228,15 @@ function AppContent(): JSX.Element {
             }
             void window.api
                 .readFile(file.path)
-                .then((r) => {
+                .then((result) => {
                     setSel({
                         tool,
                         file,
-                        selFolderRef,
-                        exists: r.exists,
-                        content: r.content,
-                        size: r.size,
-                        mtime: r.mtime,
+                        selFolderRef: folder,
+                        exists: result.exists,
+                        content: result.content,
+                        size: result.size,
+                        mtime: result.mtime,
                     });
                     clearDirty();
                     setReloadNonce((n) => n + 1);
@@ -242,7 +255,9 @@ function AppContent(): JSX.Element {
      * Returns the user to the folder view that the current file was opened from.
      */
     const backToFolder = useCallback(() => {
-        if (!sel?.selFolderRef) return;
+        if (!sel?.selFolderRef) {
+            return;
+        }
         recentSavesRef.current.delete(sel.file.path);
         setSel(null);
         clearDirty();
@@ -256,22 +271,24 @@ function AppContent(): JSX.Element {
      */
     const performEditorDelete = useCallback(async (): Promise<void> => {
         setConfirmDelete(false);
-        const cur = selRef.current;
-        if (!cur) return;
+        const selection = selRef.current;
+        if (!selection) {
+            return;
+        }
         try {
-            const res = await window.api.deleteFile(cur.file.path);
-            if (res.ok) {
-                toast.info(`Deleted ${cur.file.label}`);
-                recentSavesRef.current.delete(cur.file.path);
+            const result = await window.api.deleteFile(selection.file.path);
+            if (result.ok) {
+                toast.info(`Deleted ${selection.file.label}`);
+                recentSavesRef.current.delete(selection.file.path);
                 setSel(null);
                 clearDirty();
                 setExternal(false);
                 setFolderNonce((n) => n + 1);
-                if (cur.selFolderRef) {
-                    setSelFolder(cur.selFolderRef);
+                if (selection.selFolderRef) {
+                    setSelFolder(selection.selFolderRef);
                 }
             } else {
-                toast.error(res.error ?? "Failed to delete");
+                toast.error(result.error ?? "Failed to delete");
             }
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
@@ -338,19 +355,19 @@ function AppContent(): JSX.Element {
     );
 
     useEffect(() => {
-        const off = window.api.onOpenFile((p) => {
+        const off = window.api.onOpenFile((filePath) => {
             void (async () => {
                 await refresh();
-                for (const t of tools) {
-                    for (const f of t.files) {
-                        if (normPath(f.path) === normPath(p)) {
-                            selectFile(t, f);
+                for (const tool of tools) {
+                    for (const file of tool.files) {
+                        if (normPath(file.path) === normPath(filePath)) {
+                            selectFile(tool, file);
                             return;
                         }
                     }
-                    for (const fo of t.folders ?? []) {
-                        if (normPath(fo.path) === normPath(p)) {
-                            selectFolder(t, fo);
+                    for (const folder of tool.folders ?? []) {
+                        if (normPath(folder.path) === normPath(filePath)) {
+                            selectFolder(tool, folder);
                             return;
                         }
                     }
@@ -363,45 +380,63 @@ function AppContent(): JSX.Element {
     const selPath = sel?.file.path;
 
     useEffect(() => {
-        if (selPath) void window.api.watchFile(selPath).catch(() => {});
+        if (selPath) {
+            void window.api.watchFile(selPath).catch(() => {});
+        }
     }, [selPath]);
 
     const selFolderPath = selFolder?.folder.path;
 
     useEffect(() => {
-        if (!selPath && selFolderPath)
+        if (!selPath && selFolderPath) {
             void window.api.watchFolder(selFolderPath).catch(() => {});
+        }
     }, [selFolderPath, selPath]);
 
     useEffect(() => {
         const off = window.api.onFileChanged((changed) => {
-            const fcur = selFolderRef.current;
-            if (fcur && normPath(changed) === normPath(fcur.folder.path)) {
+            const folderSelection = selFolderRef.current;
+            if (
+                folderSelection &&
+                normPath(changed) === normPath(folderSelection.folder.path)
+            ) {
                 setFolderNonce((n) => n + 1);
             }
-            const cur = selRef.current;
-            if (!cur || normPath(changed) !== normPath(cur.file.path)) return;
+            const selection = selRef.current;
+            if (
+                !selection ||
+                normPath(changed) !== normPath(selection.file.path)
+            ) {
+                return;
+            }
             void window.api
-                .fileStat(cur.file.path)
-                .then(async (st) => {
-                    if (!st) return;
-                    if (st.mtime === cur.mtime && st.size === cur.size) return;
+                .fileStat(selection.file.path)
+                .then(async (stats) => {
+                    if (!stats) {
+                        return;
+                    }
+                    if (
+                        stats.mtime === selection.mtime &&
+                        stats.size === selection.size
+                    ) {
+                        return;
+                    }
                     if (!dirtyRef.current) {
                         // Backstop: the main-side recentWrites map is the primary defense for self-saves.
                         const expected = recentSavesRef.current.get(
-                            cur.file.path,
+                            selection.file.path,
                         );
                         if (
                             expected !== undefined &&
                             expected.until > Date.now()
                         ) {
                             try {
-                                const r = await window.api.readFile(
-                                    cur.file.path,
+                                const result = await window.api.readFile(
+                                    selection.file.path,
                                 );
-                                if (r.content === expected.content) {
+                                if (result.content === expected.content) {
                                     recentSavesRef.current.delete(
-                                        cur.file.path,
+                                        selection.file.path,
                                     );
                                     return;
                                 }
@@ -410,7 +445,7 @@ function AppContent(): JSX.Element {
                                 // when the read fails.
                             }
                         }
-                        applySelection(cur.tool, cur.file);
+                        applySelection(selection.tool, selection.file);
                     } else {
                         setExternal(true);
                     }
@@ -425,15 +460,21 @@ function AppContent(): JSX.Element {
      * No-ops when the selection is not dirty or a save is already running.
      */
     const handleSave = useCallback(async () => {
-        if (!sel || savingRef.current || saving) return;
-        if (!dirtyRef.current && sel.exists) return;
+        if (!sel || savingRef.current || saving) {
+            return;
+        }
+        if (!dirtyRef.current && sel.exists) {
+            return;
+        }
         const content = editorRef.current?.getContent();
-        if (content === undefined) return;
+        if (content === undefined) {
+            return;
+        }
         savingRef.current = true;
         setSaving(true);
         try {
-            const res = await window.api.writeFile(sel.file.path, content);
-            if (res.ok) {
+            const result = await window.api.writeFile(sel.file.path, content);
+            if (result.ok) {
                 clearDirty();
                 setExternal(false);
                 recentSavesRef.current.set(sel.file.path, {
@@ -443,10 +484,10 @@ function AppContent(): JSX.Element {
                 let size = new Blob([content]).size;
                 let mtime = Date.now();
                 try {
-                    const st = await window.api.fileStat(sel.file.path);
-                    if (st) {
-                        size = st.size;
-                        mtime = st.mtime;
+                    const stats = await window.api.fileStat(sel.file.path);
+                    if (stats) {
+                        size = stats.size;
+                        mtime = stats.mtime;
                     }
                 } catch {
                     // Keep the local Blob size/mtime estimate on stat failure.
@@ -455,14 +496,14 @@ function AppContent(): JSX.Element {
                     cur ? { ...cur, exists: true, size, mtime } : cur,
                 );
                 toast.success(
-                    res.created
+                    result.created
                         ? `Created ${sel.file.label}`
-                        : res.backupPath
+                        : result.backupPath
                           ? "Saved · backup created"
                           : "Saved",
                 );
             } else {
-                toast.error(res.error);
+                toast.error(result.error);
             }
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
@@ -476,7 +517,9 @@ function AppContent(): JSX.Element {
      * Re-reads the current file from disk, discarding in-memory edits.
      */
     const handleRevert = useCallback(() => {
-        if (!sel) return;
+        if (!sel) {
+            return;
+        }
         applySelection(sel.tool, sel.file);
     }, [sel, applySelection]);
 
@@ -486,15 +529,24 @@ function AppContent(): JSX.Element {
      * to disk; the user still saves with Ctrl+S.
      */
     const handleFormat = useCallback(async () => {
-        const cur = selRef.current;
-        if (!cur) return;
-        if (cur.file.lang === "dotenv" || cur.file.lang === "text") return;
-        if (formattingRef.current) return;
+        const selection = selRef.current;
+        if (!selection) {
+            return;
+        }
+        if (
+            selection.file.lang === "dotenv" ||
+            selection.file.lang === "text"
+        ) {
+            return;
+        }
+        if (formattingRef.current) {
+            return;
+        }
         const current = editorRef.current?.getContent() ?? "";
         formattingRef.current = true;
         setFormatting(true);
         try {
-            const result = await formatDocument(current, cur.file.lang);
+            const result = await formatDocument(current, selection.file.lang);
             if (result.ok) {
                 if (result.content === current) {
                     toast.info("Already formatted");
@@ -512,29 +564,32 @@ function AppContent(): JSX.Element {
     }, [toast]);
 
     useEffect(() => {
-        const h = (e: KeyboardEvent): void => {
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-                e.preventDefault();
+        const onSaveKey = (event: KeyboardEvent): void => {
+            if (
+                (event.ctrlKey || event.metaKey) &&
+                event.key.toLowerCase() === "s"
+            ) {
+                event.preventDefault();
                 void handleSave();
             }
         };
-        window.addEventListener("keydown", h);
-        return () => window.removeEventListener("keydown", h);
+        window.addEventListener("keydown", onSaveKey);
+        return () => window.removeEventListener("keydown", onSaveKey);
     }, [handleSave]);
 
     useEffect(() => {
-        const h = (e: KeyboardEvent): void => {
+        const onFormatKey = (event: KeyboardEvent): void => {
             if (
-                (e.ctrlKey || e.metaKey) &&
-                e.shiftKey &&
-                e.key.toLowerCase() === "f"
+                (event.ctrlKey || event.metaKey) &&
+                event.shiftKey &&
+                event.key.toLowerCase() === "f"
             ) {
-                e.preventDefault();
+                event.preventDefault();
                 void handleFormat();
             }
         };
-        window.addEventListener("keydown", h);
-        return () => window.removeEventListener("keydown", h);
+        window.addEventListener("keydown", onFormatKey);
+        return () => window.removeEventListener("keydown", onFormatKey);
     }, [handleFormat]);
 
     const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
@@ -700,15 +755,15 @@ function AppContent(): JSX.Element {
                                     editorRef.current?.getContent() ??
                                     sel.content
                                 }
-                                onLoadIntoEditor={(c) => {
+                                onLoadIntoEditor={(content) => {
                                     setModal(null);
-                                    if (!sel || c === sel.content) {
+                                    if (!sel || content === sel.content) {
                                         toast.info(
                                             "That backup matches the current file",
                                         );
                                         return;
                                     }
-                                    setSel({ ...sel, content: c });
+                                    setSel({ ...sel, content });
                                     setReloadNonce((n) => n + 1);
                                     setLiveContent(null);
                                     markDirty();

@@ -23,8 +23,9 @@ const MAX_BACKUP_READ_BYTES = 5 * 1024 * 1024;
  * resolved entry exceeds the backup read limit.
  */
 export function assertBackupPath(raw: unknown): string {
-    if (typeof raw !== "string" || raw.trim().length === 0)
+    if (typeof raw !== "string" || raw.trim().length === 0) {
         throw new Error("Invalid backup path");
+    }
     const trimmed = raw.trim();
     const resolved = path.resolve(trimmed);
     const rel = path.relative(BACKUPS_ROOT, resolved);
@@ -33,8 +34,9 @@ export function assertBackupPath(raw: unknown): string {
         rel === ".." ||
         rel.startsWith(`..${path.sep}`) ||
         path.isAbsolute(rel)
-    )
+    ) {
         throw new Error("Invalid backup path");
+    }
 
     let realRoot: string;
     try {
@@ -47,39 +49,42 @@ export function assertBackupPath(raw: unknown): string {
     let walked = false;
     while (!fs.existsSync(probe)) {
         const parent = path.dirname(probe);
-        if (parent === probe) throw new Error("Invalid backup path");
+        if (parent === probe) {
+            throw new Error("Invalid backup path");
+        }
         probe = parent;
         walked = true;
     }
     let realProbe: string;
-    let fd: number | null = null;
+    let handle: number | null = null;
     try {
         // Open through the canonical real path so the descriptor is locked
         // against symlink swaps for the rest of this call.
         realProbe = fs.realpathSync(probe);
-        fd = fs.openSync(realProbe, "r");
-        const st = fs.fstatSync(fd);
-        if (walked ? !st.isDirectory() : !st.isFile()) {
+        handle = fs.openSync(realProbe, "r");
+        const stats = fs.fstatSync(handle);
+        if (walked ? !stats.isDirectory() : !stats.isFile()) {
             throw new Error("Invalid backup path");
         }
-        if (!walked && st.size > MAX_BACKUP_READ_BYTES) {
+        if (!walked && stats.size > MAX_BACKUP_READ_BYTES) {
             throw new Error("Backup file is larger than 5 MB");
         }
     } catch (err) {
-        if (fd !== null) {
+        if (handle !== null) {
             try {
-                fs.closeSync(fd);
+                fs.closeSync(handle);
             } catch {
                 // ignore
             }
         }
-        if (err instanceof Error && err.message.startsWith("Invalid backup"))
+        if (err instanceof Error && err.message.startsWith("Invalid backup")) {
             throw err;
+        }
         throw new Error("Invalid backup path", { cause: err });
     } finally {
-        if (fd !== null) {
+        if (handle !== null) {
             try {
-                fs.closeSync(fd);
+                fs.closeSync(handle);
             } catch {
                 // ignore
             }
@@ -90,8 +95,9 @@ export function assertBackupPath(raw: unknown): string {
         realRel === ".." ||
         realRel.startsWith(`..${path.sep}`) ||
         path.isAbsolute(realRel)
-    )
+    ) {
         throw new Error("Invalid backup path");
+    }
 
     // The remainder below the existing ancestor is not re-realpathed, so a
     // racing swap between validation and I/O could still redirect. Acceptable
@@ -107,20 +113,22 @@ export function assertBackupPath(raw: unknown): string {
  */
 export function listBackupsForFile(filePath: string): BackupEntry[] {
     const dir = backupDirForFile(filePath);
-    if (!fs.existsSync(dir)) return [];
+    if (!fs.existsSync(dir)) {
+        return [];
+    }
     return fs
         .readdirSync(dir)
         .flatMap((name) => {
-            const fp = path.join(dir, name);
+            const fullPath = path.join(dir, name);
             try {
-                const st = fs.statSync(fp);
-                return st.isFile()
+                const stats = fs.statSync(fullPath);
+                return stats.isFile()
                     ? [
                           {
                               file: name,
-                              path: fp,
-                              mtime: st.mtimeMs,
-                              size: st.size,
+                              path: fullPath,
+                              mtime: stats.mtimeMs,
+                              size: stats.size,
                           },
                       ]
                     : [];
@@ -132,7 +140,7 @@ export function listBackupsForFile(filePath: string): BackupEntry[] {
                 return [];
             }
         })
-        .sort((a, b) => b.mtime - a.mtime);
+        .toSorted((a, b) => b.mtime - a.mtime);
 }
 
 /**
@@ -143,25 +151,27 @@ export function listBackupsForFile(filePath: string): BackupEntry[] {
  * @throws When the backup is missing or exceeds the read limit.
  */
 export function readBackupFile(raw: unknown): string {
-    const p = assertBackupPath(raw);
-    let fd: number;
+    const canonical = assertBackupPath(raw);
+    let handle: number;
     try {
-        fd = fs.openSync(p, "r");
+        handle = fs.openSync(canonical, "r");
     } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT")
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
             throw new Error("Backup file does not exist", { cause: err });
+        }
         throw err;
     }
     try {
         // Re-validate size against the locked fd to defeat a symlink swap
         // between the validation in assertBackupPath and the actual read.
-        const st = fs.fstatSync(fd);
-        if (st.size > MAX_BACKUP_READ_BYTES)
+        const stats = fs.fstatSync(handle);
+        if (stats.size > MAX_BACKUP_READ_BYTES) {
             throw new Error("Backup file is larger than 5 MB");
-        return decodeStoredBackup(fs.readFileSync(fd, "utf8"));
+        }
+        return decodeStoredBackup(fs.readFileSync(handle, "utf8"));
     } finally {
         try {
-            fs.closeSync(fd);
+            fs.closeSync(handle);
         } catch {
             // ignore
         }
@@ -175,11 +185,13 @@ export function readBackupFile(raw: unknown): string {
  * @throws When an actual filesystem error occurs during deletion.
  */
 export function deleteBackupFile(raw: unknown): void {
-    const p = assertBackupPath(raw);
+    const canonical = assertBackupPath(raw);
     try {
-        fs.unlinkSync(p);
+        fs.unlinkSync(canonical);
     } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw err;
+        }
     }
 }
 
@@ -205,10 +217,12 @@ export function clearBackupsForFolder(folderPath: string): void {
     } catch {
         return;
     }
-    for (const e of entries) {
-        if (e.name.startsWith(".") || e.isSymbolicLink()) continue;
-        const full = path.join(folderPath, e.name);
-        if (e.isDirectory()) {
+    for (const entry of entries) {
+        if (entry.name.startsWith(".") || entry.isSymbolicLink()) {
+            continue;
+        }
+        const full = path.join(folderPath, entry.name);
+        if (entry.isDirectory()) {
             clearBackupsForFolder(full);
         } else {
             clearBackupsForFile(full);
@@ -225,8 +239,8 @@ export function clearBackupsForFolder(folderPath: string): void {
  */
 export function encryptLegacySecretBackups(secretPaths: string[]): number {
     let converted = 0;
-    for (const p of secretPaths) {
-        const dir = backupDirForFile(p);
+    for (const secretPath of secretPaths) {
+        const dir = backupDirForFile(secretPath);
         let names: string[];
         try {
             names = fs.readdirSync(dir);
@@ -234,22 +248,26 @@ export function encryptLegacySecretBackups(secretPaths: string[]): number {
             continue;
         }
         for (const name of names) {
-            const fp = path.join(dir, name);
+            const fullPath = path.join(dir, name);
             try {
                 // lstat does not follow symlinks, so a planted symlink
                 // inside the backups root is skipped, matching the
                 // no-follow behavior of clearBackupsForFolder.
-                if (!fs.lstatSync(fp).isFile()) continue;
-                const text = fs.readFileSync(fp, "utf8");
-                if (text.startsWith(BACKUP_ENC_PREFIX)) continue;
-                const tmp = `${fp}.enc-tmp`;
+                if (!fs.lstatSync(fullPath).isFile()) {
+                    continue;
+                }
+                const text = fs.readFileSync(fullPath, "utf8");
+                if (text.startsWith(BACKUP_ENC_PREFIX)) {
+                    continue;
+                }
+                const tmp = `${fullPath}.enc-tmp`;
                 fs.writeFileSync(tmp, encodeStoredBackup(text), "utf8");
-                fs.renameSync(tmp, fp);
+                fs.renameSync(tmp, fullPath);
                 converted += 1;
             } catch (err) {
                 logError(
                     "backup-migrate",
-                    `${fp}: ${err instanceof Error ? err.message : String(err)}`,
+                    `${fullPath}: ${err instanceof Error ? err.message : String(err)}`,
                 );
             }
         }

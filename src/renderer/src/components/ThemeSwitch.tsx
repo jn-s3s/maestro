@@ -12,31 +12,31 @@ const OPTIONS: { id: ThemeMode; icon: typeof Sun; label: string }[] = [
  * Segmented control that switches between light, system and dark themes.
  */
 export default function ThemeSwitch(): JSX.Element {
-    const [sel, setSel] = useState<ThemeMode>("system");
+    const [mode, setMode] = useState<ThemeMode>("system");
 
     useEffect(() => {
         void window.api
             .getSettings()
-            .then((s) => setSel(s.theme))
+            .then((result) => setMode(result.theme))
             .catch(() => {});
     }, []);
 
-    const pick = (m: ThemeMode): void => {
-        setSel(m);
-        void window.api.setTheme(m).catch(() => {});
+    const pick = (nextMode: ThemeMode): void => {
+        setMode(nextMode);
+        void window.api.setTheme(nextMode).catch(() => {});
     };
 
     return (
         <div className="no-drag flex items-center gap-0.5 rounded-lg border border-line bg-raised p-0.5">
-            {OPTIONS.map((o) => {
-                const Icon = o.icon;
-                const active = sel === o.id;
+            {OPTIONS.map((option) => {
+                const Icon = option.icon;
+                const active = mode === option.id;
                 return (
                     <button
-                        key={o.id}
+                        key={option.id}
                         type="button"
-                        title={`${o.label} theme`}
-                        onClick={() => pick(o.id)}
+                        title={`${option.label} theme`}
+                        onClick={() => pick(option.id)}
                         className={`rounded-[7px] p-1.5 transition-colors ${
                             active
                                 ? "bg-surface text-accent shadow-sm"

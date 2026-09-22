@@ -38,13 +38,15 @@ export default function ContextMenu({
     const ref = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
-        const onMouseDown = (e: MouseEvent): void => {
-            if (ref.current && !ref.current.contains(e.target as Node)) {
+        const onMouseDown = (event: MouseEvent): void => {
+            if (ref.current && !ref.current.contains(event.target as Node)) {
                 onClose();
             }
         };
-        const onKey = (e: KeyboardEvent): void => {
-            if (e.key === "Escape") onClose();
+        const onKey = (event: KeyboardEvent): void => {
+            if (event.key === "Escape") {
+                onClose();
+            }
         };
         const onScroll = (): void => onClose();
         document.addEventListener("mousedown", onMouseDown);

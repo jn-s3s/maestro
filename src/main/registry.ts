@@ -19,11 +19,14 @@ const LOCALAPPDATA =
  * Returns the first candidate path that exists, or undefined when none do.
  * `fs.existsSync` can throw on malformed Windows paths, so each probe is
  * guarded.
+ *
+ * @param candidates - Paths to probe, in priority order.
+ * @returns The first candidate that exists, or undefined when none do.
  */
 function firstExisting(...candidates: string[]): string | undefined {
-    return candidates.find((p) => {
+    return candidates.find((candidate) => {
         try {
-            return fs.existsSync(p);
+            return fs.existsSync(candidate);
         } catch {
             return false;
         }
@@ -33,6 +36,8 @@ function firstExisting(...candidates: string[]): string | undefined {
 /**
  * Resolves the XDG data home; the XDG_DATA_HOME env var wins, otherwise the
  * Windows canonical fallback is `%LOCALAPPDATA%`.
+ *
+ * @returns The data home directory.
  */
 function xdgDataHome(): string {
     return process.env.XDG_DATA_HOME || LOCALAPPDATA;
@@ -41,6 +46,8 @@ function xdgDataHome(): string {
 /**
  * Resolves the XDG config home; the XDG_CONFIG_HOME env var wins, otherwise
  * the Windows canonical fallback is `%APPDATA%`.
+ *
+ * @returns The config home directory.
  */
 function xdgConfigHome(): string {
     return process.env.XDG_CONFIG_HOME || APPDATA;
@@ -50,6 +57,8 @@ function xdgConfigHome(): string {
  * Resolves OpenCode's data directory. Prefers the XDG data root, then the
  * `~/.local/share/opencode` location some builds use, and finally falls back
  * to the first candidate so the sidebar surfaces it with `exists: false`.
+ *
+ * @returns The OpenCode data directory.
  */
 function opencodeDataDir(): string {
     const candidates = [
@@ -63,6 +72,8 @@ function opencodeDataDir(): string {
  * Resolves Codex's home directory; a non-empty CODEX_HOME env var overrides
  * the whole `~/.codex` default. The env value is normalized so a trailing
  * separator cannot leak into the synthesised root folder's path.
+ *
+ * @returns The Codex home directory.
  */
 function codexHome(): string {
     const override = process.env.CODEX_HOME?.trim();
@@ -72,6 +83,69 @@ function codexHome(): string {
     return path.join(HOME, ".codex");
 }
 
+/**
+ * Resolves Qoder's config directory. A non-empty QODER_CONFIG_DIR env var
+ * wins, otherwise the `~/.qoder` default, falling back to the `~/.qoder-cn`
+ * location used by the China edition.
+ *
+ * @returns The Qoder CLI config directory.
+ */
+function qoderDir(): string {
+    const override = process.env.QODER_CONFIG_DIR?.trim();
+    if (override) {
+        return path.normalize(override);
+    }
+    return (
+        firstExisting(
+            path.join(HOME, ".qoder"),
+            path.join(HOME, ".qoder-cn"),
+        ) ?? path.join(HOME, ".qoder")
+    );
+}
+
+/**
+ * Resolves Cline CLI's root directory (the fixed `~/.cline` default).
+ *
+ * @returns The Cline CLI root directory.
+ */
+function clineRootDir(): string {
+    return path.join(HOME, ".cline");
+}
+
+/**
+ * Resolves Cline CLI's data directory. A non-empty CLINE_DATA_DIR env var
+ * wins (the only data-dir override Cline CLI documents), otherwise
+ * `~/.cline/data` under the fixed `~/.cline` root.
+ *
+ * @returns The Cline CLI data directory.
+ */
+function clineDataDir(): string {
+    const override = process.env.CLINE_DATA_DIR?.trim();
+    if (override) {
+        return path.normalize(override);
+    }
+    return path.join(HOME, ".cline", "data");
+}
+
+/**
+ * Resolves Cline CLI's sessions directory, derived from the data directory
+ * (`~/.cline/data/sessions` by default).
+ *
+ * @returns The Cline CLI sessions directory.
+ */
+function clineSessionsDir(): string {
+    return path.join(clineDataDir(), "sessions");
+}
+
+/**
+ * Builds a file entry, deriving existence and language from the path.
+ *
+ * @param id - Stable identifier used as the selection key.
+ * @param label - Name shown in the sidebar.
+ * @param filePath - Absolute path to the config file.
+ * @param extra - Optional fields merged over the defaults.
+ * @returns The tool file entry.
+ */
 function makeFile(
     id: string,
     label: string,
@@ -88,6 +162,15 @@ function makeFile(
     };
 }
 
+/**
+ * Builds a folder entry, deriving existence from the path.
+ *
+ * @param id - Stable identifier used as the selection key.
+ * @param label - Name shown in the sidebar.
+ * @param folderPath - Absolute path to the folder.
+ * @param extra - Optional fields merged over the defaults.
+ * @returns The tool folder entry.
+ */
 function makeFolder(
     id: string,
     label: string,
@@ -106,13 +189,32 @@ function makeFolder(
 /**
  * Resolves symlinks so containment checks compare real paths, not lexical ones.
  * Falls back to the normalized input when realpath is unavailable.
+ *
+ * @param target - The path to resolve.
+ * @returns The symlink-resolved path, or the normalized input.
  */
-function canonicalPath(p: string): string {
+function canonicalPath(target: string): string {
     try {
-        return fs.realpathSync(p);
+        return fs.realpathSync(target);
     } catch {
-        return path.normalize(p);
+        return path.normalize(target);
     }
+}
+
+/**
+ * Lower-cases a string and collapses runs of non-alphanumeric characters
+ * into single hyphens, trimming edge hyphens.
+ *
+ * @param value - The string to slugify.
+ * @returns The slug, or "root" when the result would be empty.
+ */
+function slug(value: string): string {
+    return (
+        value
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/(^-|-$)/g, "") || "root"
+    );
 }
 
 const RELOAD_NOTE =
@@ -362,6 +464,63 @@ export function detectTools(settings: AppSettings): Tool[] {
         ],
     });
 
+    const qoderRoot = qoderDir();
+    tools.push({
+        id: "qoder-cli",
+        name: "Qoder CLI",
+        group: "cli",
+        subtitle: "~\\.qoder",
+        roots: [{ path: qoderRoot, section: "Config" }],
+        files: [
+            makeFile(
+                "qoder-cli/settings.json",
+                "settings.json",
+                path.join(qoderRoot, "settings.json"),
+                { section: "Config" },
+            ),
+        ],
+        folders: [
+            makeFolder(
+                "qoder-cli/folder-agents",
+                "agents",
+                path.join(qoderRoot, "agents"),
+                { section: "Config" },
+            ),
+            makeFolder(
+                "qoder-cli/folder-skills",
+                "skills",
+                path.join(qoderRoot, "skills"),
+                { section: "Config" },
+            ),
+            makeFolder(
+                "qoder-cli/folder-hooks",
+                "hooks",
+                path.join(qoderRoot, "hooks"),
+                { section: "Config" },
+            ),
+        ],
+    });
+
+    const clineRoot = clineRootDir();
+    const clineData = clineDataDir();
+    const clineSessions = clineSessionsDir();
+    tools.push({
+        id: "cline-cli",
+        name: "Cline CLI",
+        group: "cli",
+        subtitle: "~\\.cline",
+        roots: [
+            { path: clineRoot, section: "Config" },
+            { path: clineData, section: "Data" },
+        ],
+        files: [],
+        folders: [
+            makeFolder("cline-cli/folder-sessions", "sessions", clineSessions, {
+                section: "Data",
+            }),
+        ],
+    });
+
     tools.push({
         id: "continue",
         name: "Continue",
@@ -394,17 +553,17 @@ export function detectTools(settings: AppSettings): Tool[] {
         { id: "vscodium", name: "VSCodium", dirName: "VSCodium" },
     ].filter((f) => fs.existsSync(path.join(APPDATA, f.dirName, "User")));
 
-    for (const f of flavors) {
-        const userDir = path.join(APPDATA, f.dirName, "User");
+    for (const flavor of flavors) {
+        const userDir = path.join(APPDATA, flavor.dirName, "User");
         tools.push({
-            id: `vscode-${f.id}`,
-            name: f.name,
+            id: `vscode-${flavor.id}`,
+            name: flavor.name,
             group: "editor",
-            subtitle: `%APPDATA%\\${f.dirName}\\User`,
+            subtitle: `%APPDATA%\\${flavor.dirName}\\User`,
             roots: [{ path: userDir, section: "Config" }],
             files: [
                 makeFile(
-                    `vscode-${f.id}/settings.json`,
+                    `vscode-${flavor.id}/settings.json`,
                     "settings.json",
                     path.join(userDir, "settings.json"),
                     { section: "Config" },
@@ -434,28 +593,30 @@ export function detectTools(settings: AppSettings): Tool[] {
         },
     ];
 
-    for (const f of flavors) {
+    for (const flavor of flavors) {
         const globalStorage = path.join(
             APPDATA,
-            f.dirName,
+            flavor.dirName,
             "User",
             "globalStorage",
         );
-        for (const e of extensions) {
-            const extDir = path.join(globalStorage, e.folder);
-            if (!fs.existsSync(extDir)) continue;
-            const fp = path.join(extDir, ...e.file.split("/"));
+        for (const extension of extensions) {
+            const extDir = path.join(globalStorage, extension.folder);
+            if (!fs.existsSync(extDir)) {
+                continue;
+            }
+            const fullPath = path.join(extDir, ...extension.file.split("/"));
             tools.push({
-                id: `${e.id}-${f.id}`,
-                name: e.name,
+                id: `${extension.id}-${flavor.id}`,
+                name: extension.name,
                 group: "ext",
-                subtitle: `${f.name} · ${e.folder}`,
+                subtitle: `${flavor.name} · ${extension.folder}`,
                 roots: [{ path: extDir, section: "Config" }],
                 files: [
                     makeFile(
-                        `${e.id}-${f.id}/${path.basename(e.file)}`,
-                        path.basename(e.file),
-                        fp,
+                        `${extension.id}-${flavor.id}/${path.basename(extension.file)}`,
+                        path.basename(extension.file),
+                        fullPath,
                         {
                             note: RELOAD_NOTE,
                             section: "Config",
@@ -466,37 +627,42 @@ export function detectTools(settings: AppSettings): Tool[] {
         }
     }
 
-    for (const c of settings.custom) {
+    for (const customEntry of settings.custom) {
         let isDir = false;
         try {
-            isDir = fs.statSync(c.path).isDirectory();
+            isDir = fs.statSync(customEntry.path).isDirectory();
         } catch {
             // Missing or unreadable path; treat it as a file below.
         }
         if (isDir) {
             tools.push({
-                id: c.id,
-                name: c.name,
+                id: customEntry.id,
+                name: customEntry.name,
                 group: "custom",
-                subtitle: c.path,
+                subtitle: customEntry.path,
                 files: [],
                 folders: [
-                    makeFolder(`${c.id}/folder`, "Files", c.path, {
-                        section: "Config",
-                    }),
+                    makeFolder(
+                        `${customEntry.id}/folder`,
+                        "Files",
+                        customEntry.path,
+                        {
+                            section: "Config",
+                        },
+                    ),
                 ],
             });
         } else {
             tools.push({
-                id: c.id,
-                name: c.name,
+                id: customEntry.id,
+                name: customEntry.name,
                 group: "custom",
-                subtitle: c.path,
+                subtitle: customEntry.path,
                 files: [
                     makeFile(
-                        `${c.id}/file`,
-                        path.basename(c.path) || c.path,
-                        c.path,
+                        `${customEntry.id}/file`,
+                        path.basename(customEntry.path) || customEntry.path,
+                        customEntry.path,
                         { section: "Config" },
                     ),
                 ],
@@ -504,25 +670,21 @@ export function detectTools(settings: AppSettings): Tool[] {
         }
     }
 
-    const slug = (s: string): string =>
-        s
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/(^-|-$)/g, "") || "root";
-
-    for (const t of tools) {
-        if (!t.roots?.length) continue;
-        const roots = t.roots.map((r, i) =>
+    for (const tool of tools) {
+        if (!tool.roots?.length) {
+            continue;
+        }
+        const roots = tool.roots.map((root, index) =>
             makeFolder(
-                `${t.id}/folder-root-${slug(r.section)}-${i}`,
-                r.label ?? r.section,
-                r.path,
+                `${tool.id}/folder-root-${slug(root.section)}-${index}`,
+                root.label ?? root.section,
+                root.path,
                 {
-                    section: r.section,
+                    section: root.section,
                 },
             ),
         );
-        t.folders = [...roots, ...(t.folders ?? [])];
+        tool.folders = [...roots, ...(tool.folders ?? [])];
     }
 
     return tools;
@@ -536,9 +698,9 @@ export function detectTools(settings: AppSettings): Tool[] {
  */
 export function registeredPaths(tools: Tool[]): Set<string> {
     const out = new Set<string>();
-    for (const t of tools) {
-        for (const f of t.files) {
-            out.add(path.normalize(canonicalPath(f.path)).toLowerCase());
+    for (const tool of tools) {
+        for (const file of tool.files) {
+            out.add(path.normalize(canonicalPath(file.path)).toLowerCase());
         }
     }
     return out;
@@ -558,10 +720,12 @@ export function findContainingFolder(
     const norm = path.normalize(canonicalPath(filePath)).toLowerCase();
     let best: ToolFolder | undefined;
     let bestLen = -1;
-    for (const t of tools) {
-        for (const fo of t.folders ?? []) {
+    for (const tool of tools) {
+        for (const fo of tool.folders ?? []) {
             let root = path.normalize(canonicalPath(fo.path)).toLowerCase();
-            if (!root.endsWith(path.sep)) root += path.sep;
+            if (!root.endsWith(path.sep)) {
+                root += path.sep;
+            }
             if ((norm + path.sep).startsWith(root) && root.length > bestLen) {
                 best = fo;
                 bestLen = root.length;
@@ -580,11 +744,11 @@ export function findContainingFolder(
  */
 export function isSecretPath(tools: Tool[], filePath: string): boolean {
     const key = path.normalize(canonicalPath(filePath)).toLowerCase();
-    for (const t of tools) {
-        for (const f of t.files) {
+    for (const tool of tools) {
+        for (const file of tool.files) {
             if (
-                f.secret === true &&
-                path.normalize(canonicalPath(f.path)).toLowerCase() === key
+                file.secret === true &&
+                path.normalize(canonicalPath(file.path)).toLowerCase() === key
             ) {
                 return true;
             }
@@ -601,8 +765,8 @@ export function isSecretPath(tools: Tool[], filePath: string): boolean {
  */
 export function registeredFolderRoots(tools: Tool[]): Set<string> {
     const out = new Set<string>();
-    for (const t of tools) {
-        for (const fo of t.folders ?? []) {
+    for (const tool of tools) {
+        for (const fo of tool.folders ?? []) {
             out.add(path.normalize(canonicalPath(fo.path)).toLowerCase());
         }
     }
@@ -623,20 +787,24 @@ export function listDir(root: string): DirEntry[] {
         return [];
     }
     const out: DirEntry[] = [];
-    for (const e of entries) {
-        if (e.name.startsWith(".")) continue;
-        if (e.isSymbolicLink()) continue;
-        const full = path.join(root, e.name);
+    for (const entry of entries) {
+        if (entry.name.startsWith(".")) {
+            continue;
+        }
+        if (entry.isSymbolicLink()) {
+            continue;
+        }
+        const full = path.join(root, entry.name);
         const rel = path.relative(root, full);
         try {
-            const st = fs.statSync(full);
+            const stats = fs.statSync(full);
             out.push({
-                name: e.name,
+                name: entry.name,
                 path: full,
                 rel,
-                isDir: e.isDirectory(),
-                mtime: st.mtimeMs,
-                size: st.size,
+                isDir: entry.isDirectory(),
+                mtime: stats.mtimeMs,
+                size: stats.size,
             });
         } catch {
             // Skip entries that cannot be stat'd (e.g. broken symlinks).

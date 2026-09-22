@@ -31,6 +31,8 @@ import { json } from "@codemirror/lang-json";
 import { jsonc } from "@shopify/lang-jsonc";
 import { yaml } from "@codemirror/lang-yaml";
 import { markdown } from "@codemirror/lang-markdown";
+import { python } from "@codemirror/lang-python";
+import { javascript } from "@codemirror/lang-javascript";
 import type { FileLang } from "../../../shared/types";
 import { fmtBytes, fmtTime, LANG_LABELS } from "../lib/format";
 import { editorTheme } from "./editor/themes";
@@ -72,6 +74,12 @@ interface Props {
 const iconBtn =
     "rounded-lg p-2 text-secondary transition-colors hover:bg-raised hover:text-primary disabled:pointer-events-none disabled:opacity-30";
 
+/**
+ * Picks the CodeMirror language extensions for a detected file language.
+ *
+ * @param lang - The language resolved from the file path.
+ * @returns The language extensions, empty when no mode is available.
+ */
 function languageFor(lang: FileLang): Extension[] {
     switch (lang) {
         case "json":
@@ -84,11 +92,23 @@ function languageFor(lang: FileLang): Extension[] {
             return [toml()];
         case "markdown":
             return [markdown()];
+        case "javascript":
+            return [javascript({ jsx: true })];
+        case "typescript":
+            return [javascript({ jsx: true, typescript: true })];
+        case "python":
+            return [python()];
         default:
             return [];
     }
 }
 
+/**
+ * Resolves the CodeMirror theme extensions for a colour scheme.
+ *
+ * @param mode - The scheme to render.
+ * @returns The editor theme extensions.
+ */
 function themeFor(mode: "light" | "dark"): Extension[] {
     return editorTheme(mode);
 }
@@ -146,7 +166,9 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
     }, [props.softWrap, wrapComp]);
 
     useEffect(() => {
-        if (!hostRef.current) return;
+        if (!hostRef.current) {
+            return;
+        }
         const view = new EditorView({
             state: EditorState.create({
                 doc: props.initialContent,
@@ -199,7 +221,9 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
             getContent: () => viewRef.current?.state.doc.toString() ?? "",
             applyEdit: (content) => {
                 const view = viewRef.current;
-                if (!view) return;
+                if (!view) {
+                    return;
+                }
                 view.dispatch({
                     changes: {
                         from: 0,
@@ -265,11 +289,13 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                         disabled={!props.fileExists}
                         onClick={() =>
                             props.filePath &&
-                            window.api.openFile(props.filePath).then((r) => {
-                                if (!r.ok && r.error) {
-                                    toast.error(r.error);
-                                }
-                            })
+                            window.api
+                                .openFile(props.filePath)
+                                .then((result) => {
+                                    if (!result.ok && result.error) {
+                                        toast.error(result.error);
+                                    }
+                                })
                         }
                         className={iconBtn}
                     >
@@ -301,6 +327,8 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                             !props.onFormat ||
                             props.formatting ||
                             props.lang === "dotenv" ||
+                            props.lang === "python" ||
+                            props.lang === "shell" ||
                             props.lang === "text"
                         }
                         onClick={() => props.onFormat?.()}

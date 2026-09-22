@@ -65,13 +65,13 @@ export function ToastProvider({ children }: ProviderProps): JSX.Element {
         <ToastCtx.Provider value={api}>
             {children}
             <div className="pointer-events-none fixed right-4 bottom-4 z-100 flex w-80 flex-col gap-2">
-                {items.map((t) => (
+                {items.map((item) => (
                     <div
-                        key={t.id}
-                        className={`pointer-events-auto flex items-start gap-2 rounded-xl border bg-surface px-3 py-2 text-sm shadow-xl backdrop-blur transition-colors ${styles[t.kind]}`}
+                        key={item.id}
+                        className={`pointer-events-auto flex items-start gap-2 rounded-xl border bg-surface px-3 py-2 text-sm shadow-xl backdrop-blur transition-colors ${styles[item.kind]}`}
                     >
-                        {icons[t.kind]}
-                        <span className="text-primary">{t.msg}</span>
+                        {icons[item.kind]}
+                        <span className="text-primary">{item.msg}</span>
                     </div>
                 ))}
             </div>

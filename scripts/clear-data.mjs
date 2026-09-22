@@ -23,27 +23,41 @@ const TARGETS = [
     path.join(MAESTRO_ROOT, "logs"),
 ];
 
-/** Returns a short size summary for a directory tree. */
+/**
+ * Returns a short size summary for a directory tree.
+ *
+ * @param {string} dir - The directory to measure.
+ * @returns {{bytes: number, files: number}|null} The totals, or null when the
+ * directory does not exist.
+ */
 function summarize(dir) {
-    if (!fs.existsSync(dir)) return null;
+    if (!fs.existsSync(dir)) {
+        return null;
+    }
     let bytes = 0;
     let files = 0;
-    // Best-effort walk that never throws on unreadable entries.
-    const walk = (d) => {
+
+    /**
+     * Accumulates the size of every readable file below a directory.
+     * Best-effort walk that never throws on unreadable entries.
+     *
+     * @param {string} current - The directory being walked.
+     */
+    const walk = (current) => {
         let entries;
         try {
-            entries = fs.readdirSync(d, { withFileTypes: true });
+            entries = fs.readdirSync(current, { withFileTypes: true });
         } catch {
             return;
         }
         for (const entry of entries) {
-            const full = path.join(d, entry.name);
+            const full = path.join(current, entry.name);
             if (entry.isDirectory()) {
                 walk(full);
             } else if (entry.isFile()) {
                 try {
-                    const st = fs.statSync(full);
-                    bytes += st.size;
+                    const stats = fs.statSync(full);
+                    bytes += stats.size;
                     files += 1;
                 } catch {
                     // Skip entries that cannot be stat'd.

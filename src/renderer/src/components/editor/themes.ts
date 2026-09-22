@@ -1,5 +1,5 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { tags as t } from "@lezer/highlight";
+import { tags } from "@lezer/highlight";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 
@@ -11,7 +11,9 @@ import type { Extension } from "@codemirror/state";
  * @returns The trimmed variable value, or the fallback.
  */
 function readCssVar(name: string, fallback: string): string {
-    if (typeof document === "undefined") return fallback;
+    if (typeof document === "undefined") {
+        return fallback;
+    }
     const raw = getComputedStyle(document.documentElement)
         .getPropertyValue(name)
         .trim();
@@ -26,20 +28,26 @@ function readCssVar(name: string, fallback: string): string {
  * @returns The rgba() representation, or the input on parse failure.
  */
 function withAlpha(hex: string, alpha: number): string {
-    let h = hex.trim();
-    if (h.startsWith("#")) h = h.slice(1);
-    if (h.length === 3) {
-        h = h
+    let digits = hex.trim();
+    if (digits.startsWith("#")) {
+        digits = digits.slice(1);
+    }
+    if (digits.length === 3) {
+        digits = digits
             .split("")
-            .map((c) => c + c)
+            .map((channel) => channel + channel)
             .join("");
     }
-    if (h.length !== 6) return hex;
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return hex;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    if (digits.length !== 6) {
+        return hex;
+    }
+    const red = parseInt(digits.slice(0, 2), 16);
+    const green = parseInt(digits.slice(2, 4), 16);
+    const blue = parseInt(digits.slice(4, 6), 16);
+    if (Number.isNaN(red) || Number.isNaN(green) || Number.isNaN(blue)) {
+        return hex;
+    }
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 /**
@@ -194,30 +202,51 @@ const basePalette = {
  * @returns A CodeMirror HighlightStyle instance scoped to that mode.
  */
 function highlightFor(isDark: boolean): HighlightStyle {
-    const p = isDark ? basePalette.dark : basePalette.light;
+    const palette = isDark ? basePalette.dark : basePalette.light;
     return HighlightStyle.define([
-        { tag: t.keyword, color: p.keyword, fontWeight: "600" },
-        { tag: [t.string, t.special(t.string)], color: p.string },
-        { tag: t.number, color: p.number },
-        { tag: [t.bool, t.atom, t.null], color: p.bool },
-        { tag: t.propertyName, color: p.property },
+        { tag: tags.keyword, color: palette.keyword, fontWeight: "600" },
         {
-            tag: [t.variableName, t.attributeName],
-            color: p.variable,
+            tag: [tags.string, tags.special(tags.string)],
+            color: palette.string,
+        },
+        { tag: tags.number, color: palette.number },
+        {
+            tag: [tags.bool, tags.atom, tags.null],
+            color: palette.bool,
+        },
+        { tag: tags.propertyName, color: palette.property },
+        {
+            tag: [tags.variableName, tags.attributeName],
+            color: palette.variable,
         },
         {
-            tag: t.comment,
-            color: p.comment,
+            tag: tags.comment,
+            color: palette.comment,
             fontStyle: "italic",
         },
-        { tag: [t.punctuation, t.bracket, t.operator], color: p.punctuation },
-        { tag: t.heading, color: p.heading, fontWeight: "700" },
-        { tag: t.link, color: p.link, textDecoration: "underline" },
-        { tag: t.emphasis, color: p.emphasis, fontStyle: "italic" },
-        { tag: t.strong, color: p.strong, fontWeight: "700" },
-        { tag: t.meta, color: p.meta },
-        { tag: t.invalid, color: p.invalid, textDecoration: "underline wavy" },
-        { tag: t.escape, color: p.escape },
+        {
+            tag: [tags.punctuation, tags.bracket, tags.operator],
+            color: palette.punctuation,
+        },
+        { tag: tags.heading, color: palette.heading, fontWeight: "700" },
+        {
+            tag: tags.link,
+            color: palette.link,
+            textDecoration: "underline",
+        },
+        {
+            tag: tags.emphasis,
+            color: palette.emphasis,
+            fontStyle: "italic",
+        },
+        { tag: tags.strong, color: palette.strong, fontWeight: "700" },
+        { tag: tags.meta, color: palette.meta },
+        {
+            tag: tags.invalid,
+            color: palette.invalid,
+            textDecoration: "underline wavy",
+        },
+        { tag: tags.escape, color: palette.escape },
     ]);
 }
 

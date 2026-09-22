@@ -37,7 +37,9 @@ export function stripJsonComments(src: string): string {
                 i += 2;
                 continue;
             }
-            if (ch === '"') inStr = false;
+            if (ch === '"') {
+                inStr = false;
+            }
             i++;
             continue;
         }
@@ -82,7 +84,9 @@ export function stripTrailingCommas(src: string): string {
                 i += 2;
                 continue;
             }
-            if (ch === '"') inStr = false;
+            if (ch === '"') {
+                inStr = false;
+            }
             i++;
             continue;
         }
@@ -94,7 +98,9 @@ export function stripTrailingCommas(src: string): string {
         }
         if (ch === ",") {
             let j = i + 1;
-            while (j < src.length && /\s/.test(src[j])) j++;
+            while (j < src.length && /\s/.test(src[j])) {
+                j++;
+            }
             if (src[j] === "}" || src[j] === "]") {
                 i++;
                 continue;

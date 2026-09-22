@@ -11,6 +11,12 @@ export interface ToastApi {
     info: (msg: string) => void;
 }
 
+/**
+ * Warns when a toast is dispatched with no provider mounted.
+ *
+ * @param kind - The toast method that was called.
+ * @param msg - The message the caller tried to dispatch.
+ */
 const missingProviderWarn = (kind: string, msg: string): void => {
     console.warn(`[Toast] ${kind} called outside ToastProvider: ${msg}`);
 };

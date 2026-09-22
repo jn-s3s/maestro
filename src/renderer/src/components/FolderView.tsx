@@ -31,10 +31,23 @@ interface Props {
 }
 
 /**
+ * Lists the ancestor directories of a relative folder path, outermost first.
+ * Used to rebuild breadcrumb navigation when returning to a browsed folder.
+ *
+ * @param dir - Path relative to the registered folder root.
+ * @returns Every ancestor path, including the empty root path.
+ */
+const parentHistory = (dir: string): string[] => {
+    const segments = dir.split("/");
+    return segments.map((_, index) => segments.slice(0, index).join("/"));
+};
+
+/**
  * Drill-down file browser for a registered tool folder.
  *
  * Shows the direct children of the current directory only. Clicking a folder
- * navigates into it and the new-item boxes create files and folders in the current directory.
+ * navigates into it and the new-item boxes create files and folders in the
+ * current directory.
  *
  * @param folder - The registered folder to browse.
  * @param reloadKey - Value that triggers a fresh listing when it changes.
@@ -43,11 +56,6 @@ interface Props {
  * @param onMutated - Optional callback after a create or delete.
  * @param onDeleted - Optional callback when the folder itself is deleted.
  */
-const parentHistory = (dir: string): string[] => {
-    const segments = dir.split("/");
-    return segments.map((_, i) => segments.slice(0, i).join("/"));
-};
-
 export default function FolderView({
     folder,
     reloadKey = 0,
@@ -89,13 +97,17 @@ export default function FolderView({
             const id = ++requestRef.current;
             void window.api
                 .listFolder(dirPath)
-                .then((r) => {
-                    if (id !== requestRef.current) return;
-                    setEntries(r.entries);
-                    setDirExists(r.exists);
+                .then((result) => {
+                    if (id !== requestRef.current) {
+                        return;
+                    }
+                    setEntries(result.entries);
+                    setDirExists(result.exists);
                 })
                 .catch((err) => {
-                    if (id !== requestRef.current) return;
+                    if (id !== requestRef.current) {
+                        return;
+                    }
                     toast.error(
                         err instanceof Error ? err.message : String(err),
                     );
@@ -147,11 +159,13 @@ export default function FolderView({
 
     const create = async (): Promise<void> => {
         const trimmed = name.trim();
-        if (!trimmed) return;
+        if (!trimmed) {
+            return;
+        }
         try {
-            const res = await window.api.createFileIn(cwdPath, trimmed);
-            if (!res.ok) {
-                toast.error(res.error ?? "Failed to create file");
+            const result = await window.api.createFileIn(cwdPath, trimmed);
+            if (!result.ok) {
+                toast.error(result.error ?? "Failed to create file");
                 return;
             }
             setName("");
@@ -165,11 +179,13 @@ export default function FolderView({
 
     const createFolder = async (): Promise<void> => {
         const trimmed = folderName.trim();
-        if (!trimmed) return;
+        if (!trimmed) {
+            return;
+        }
         try {
-            const res = await window.api.createFolderIn(cwdPath, trimmed);
-            if (!res.ok) {
-                toast.error(res.error ?? "Failed to create folder");
+            const result = await window.api.createFolderIn(cwdPath, trimmed);
+            if (!result.ok) {
+                toast.error(result.error ?? "Failed to create folder");
                 return;
             }
             setFolderName("");
@@ -184,17 +200,19 @@ export default function FolderView({
     const performDelete = async (): Promise<void> => {
         const entry = pendingDelete;
         setPendingDelete(null);
-        if (!entry) return;
+        if (!entry) {
+            return;
+        }
         try {
-            const res = entry.isDir
+            const result = entry.isDir
                 ? await window.api.deleteFolder(entry.path)
                 : await window.api.deleteFile(entry.path);
-            if (res.ok) {
+            if (result.ok) {
                 toast.info(`Deleted ${entry.name}`);
                 load(cwdPath);
                 onMutated?.();
             } else {
-                toast.error(res.error ?? "Failed to delete");
+                toast.error(result.error ?? "Failed to delete");
             }
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
@@ -204,8 +222,8 @@ export default function FolderView({
     const performFolderDelete = async (): Promise<void> => {
         setConfirmFolderDelete(false);
         try {
-            const res = await window.api.deleteFolder(cwdPath);
-            if (res.ok) {
+            const result = await window.api.deleteFolder(cwdPath);
+            if (result.ok) {
                 toast.info(`Deleted ${displayName}`);
                 onMutated?.();
                 if (cwdRel) {
@@ -214,15 +232,18 @@ export default function FolderView({
                     onDeleted?.();
                 }
             } else {
-                toast.error(res.error ?? "Failed to delete folder");
+                toast.error(result.error ?? "Failed to delete folder");
             }
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
         }
     };
 
-    const openContextMenu = (e: React.MouseEvent, entry: DirEntry): void => {
-        e.preventDefault();
+    const openContextMenu = (
+        event: React.MouseEvent,
+        entry: DirEntry,
+    ): void => {
+        event.preventDefault();
         const items: ContextMenuItem[] = entry.isDir
             ? [
                   { id: "open", label: "Open", onClick: () => enter(entry) },
@@ -266,7 +287,11 @@ export default function FolderView({
                       onClick: () => setPendingDelete(entry),
                   },
               ];
-        setContextMenu({ x: e.clientX, y: e.clientY, items });
+        setContextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            items,
+        });
     };
 
     const startRename = (entry: DirEntry): void => {
@@ -278,23 +303,31 @@ export default function FolderView({
     };
 
     const commitRename = async (): Promise<void> => {
-        const r = renaming;
-        if (!r) return;
-        const trimmed = r.value.trim();
-        if (!trimmed || trimmed === r.entry.name) {
+        const pendingRename = renaming;
+        if (!pendingRename) {
+            return;
+        }
+        const trimmed = pendingRename.value.trim();
+        if (!trimmed || trimmed === pendingRename.entry.name) {
             setRenaming(null);
             return;
         }
         try {
-            const res = r.entry.isDir
-                ? await window.api.renameFolder(r.entry.path, trimmed)
-                : await window.api.renameFile(r.entry.path, trimmed);
-            if (res.ok) {
+            const result = pendingRename.entry.isDir
+                ? await window.api.renameFolder(
+                      pendingRename.entry.path,
+                      trimmed,
+                  )
+                : await window.api.renameFile(
+                      pendingRename.entry.path,
+                      trimmed,
+                  );
+            if (result.ok) {
                 setRenaming(null);
                 load(cwdPath);
                 onMutated?.();
             } else {
-                toast.error(res.error ?? "Failed to rename");
+                toast.error(result.error ?? "Failed to rename");
             }
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
@@ -380,7 +413,9 @@ export default function FolderView({
                     <ul
                         className="space-y-1"
                         onKeyDown={(e) => {
-                            if (e.key !== "Delete" || !focusedPath) return;
+                            if (e.key !== "Delete" || !focusedPath) {
+                                return;
+                            }
                             const entry = entries.find(
                                 (x) => x.path === focusedPath,
                             );
@@ -415,10 +450,13 @@ export default function FolderView({
                                                     })
                                                 }
                                                 onKeyDown={(e) => {
-                                                    if (e.key === "Enter")
+                                                    if (e.key === "Enter") {
                                                         void commitRename();
-                                                    else if (e.key === "Escape")
+                                                    } else if (
+                                                        e.key === "Escape"
+                                                    ) {
                                                         cancelRename();
+                                                    }
                                                 }}
                                                 onBlur={() =>
                                                     void commitRename()
@@ -435,8 +473,9 @@ export default function FolderView({
                                                 openContextMenu(e, entry)
                                             }
                                             onKeyDown={(e) => {
-                                                if (e.key === "F2")
+                                                if (e.key === "F2") {
                                                     startRename(entry);
+                                                }
                                             }}
                                             onFocus={() =>
                                                 setFocusedPath(entry.path)
@@ -485,10 +524,13 @@ export default function FolderView({
                                                     })
                                                 }
                                                 onKeyDown={(e) => {
-                                                    if (e.key === "Enter")
+                                                    if (e.key === "Enter") {
                                                         void commitRename();
-                                                    else if (e.key === "Escape")
+                                                    } else if (
+                                                        e.key === "Escape"
+                                                    ) {
                                                         cancelRename();
+                                                    }
                                                 }}
                                                 onBlur={() =>
                                                     void commitRename()
@@ -506,8 +548,9 @@ export default function FolderView({
                                                     openContextMenu(e, entry)
                                                 }
                                                 onKeyDown={(e) => {
-                                                    if (e.key === "F2")
+                                                    if (e.key === "F2") {
                                                         startRename(entry);
+                                                    }
                                                 }}
                                                 onFocus={() =>
                                                     setFocusedPath(entry.path)
@@ -563,7 +606,9 @@ export default function FolderView({
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         onKeyDown={(e) => {
-                            if (e.key === "Enter") void create();
+                            if (e.key === "Enter") {
+                                void create();
+                            }
                         }}
                         placeholder={
                             folder.label.toLowerCase() === "commands"
@@ -592,7 +637,9 @@ export default function FolderView({
                         value={folderName}
                         onChange={(e) => setFolderName(e.target.value)}
                         onKeyDown={(e) => {
-                            if (e.key === "Enter") void createFolder();
+                            if (e.key === "Enter") {
+                                void createFolder();
+                            }
                         }}
                         placeholder="my-folder"
                         spellCheck={false}

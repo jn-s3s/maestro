@@ -57,35 +57,137 @@ import { langFromPath } from "../shared/types";
  */
 const recentWrites = new Map<string, number>();
 
+/**
+ * Resolves the absolute path of a bundled resource, dev or packaged.
+ *
+ * @param name - File name under `resources/`.
+ * @returns The resolved filesystem path.
+ */
+function resourcePath(name: string): string {
+    return app.isPackaged
+        ? path.join(process.resourcesPath, "resources", name)
+        : path.join(app.getAppPath(), "resources", name);
+}
+
+/**
+ * Returns the title bar overlay options for the resolved theme.
+ *
+ * @param dark - Whether the host UI is in dark mode.
+ * @returns The overlay colour options matching the theme.
+ */
+function overlayColors(dark: boolean): Electron.TitleBarOverlayOptions {
+    return dark
+        ? { color: "#09090b", symbolColor: "#d4d4d8", height: 36 }
+        : { color: "#fafafa", symbolColor: "#52525b", height: 36 };
+}
+
+/**
+ * Pushes the current theme to every open renderer window.
+ */
+function broadcastTheme(): void {
+    for (const browserWindow of BrowserWindow.getAllWindows()) {
+        browserWindow.webContents.send(
+            "theme:changed",
+            nativeTheme.shouldUseDarkColors,
+        );
+    }
+}
+
+/**
+ * Returns a normalized, lower-cased path key for set lookups.
+ * Lowercasing relies on Windows case-insensitive filesystems.
+ *
+ * @param target - The path to key.
+ * @returns The normalized, lower-cased path.
+ */
+function normalizeKey(target: string): string {
+    return path.normalize(target).toLowerCase();
+}
+
+/**
+ * Reports whether the leaf entry itself is a symlink or junction, using
+ * a no-follow check so planted reparse points cannot redirect file
+ * operations that would otherwise follow them.
+ *
+ * @param target - Absolute path to inspect.
+ * @returns True when the leaf is a reparse point.
+ */
+function isSymlinkLeaf(target: string): boolean {
+    try {
+        return fs.lstatSync(target).isSymbolicLink();
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Checks if a JSON-like string has excessive nesting depth.
+ * Counts opening brackets to estimate nesting level.
+ *
+ * @param content - The string content to check.
+ * @returns true if nesting appears excessive.
+ */
+function hasExcessiveNesting(content: string): boolean {
+    let depth = 0;
+    let maxDepth = 0;
+    for (let i = 0; i < content.length; i += 1) {
+        const char = content[i];
+        if (char === "{" || char === "[") {
+            depth += 1;
+            if (depth > maxDepth) {
+                maxDepth = depth;
+            }
+        } else if (char === "}" || char === "]") {
+            depth = Math.max(0, depth - 1);
+        }
+    }
+    return maxDepth > 10000;
+}
+
+/**
+ * Registers an IPC handler that logs and rethrows any error.
+ *
+ * @param channel - The IPC channel name.
+ * @param fn - The async handler implementation.
+ */
+function safe(channel: string, fn: (...args: unknown[]) => unknown): void {
+    ipcMain.handle(channel, async (_e, ...args: unknown[]) => {
+        try {
+            return await fn(...args);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logError(
+                channel,
+                err instanceof Error ? (err.stack ?? message) : message,
+            );
+            // Sanitize the rethrow so the renderer only sees the message.
+            // Full stack is captured in the log above.
+            // eslint-disable-next-line preserve-caught-error
+            throw new Error(message);
+        }
+    });
+}
+
+/**
+ * Deletes the entire backups tree, used by the one-time history resets.
+ */
+function resetBackups(): void {
+    try {
+        fs.rmSync(BACKUPS_ROOT, { recursive: true, force: true });
+    } catch (err) {
+        logError(
+            "backup-reset",
+            err instanceof Error ? err.message : String(err),
+        );
+    }
+}
+
 if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     let mainWindow: BrowserWindow | null = null;
     let tray: Tray | null = null;
     let quitting = false;
-
-    /**
-     * Resolves the absolute path of a bundled resource, dev or packaged.
-     *
-     * @param name - File name under `resources/`.
-     * @returns The resolved filesystem path.
-     */
-    function resourcePath(name: string): string {
-        return app.isPackaged
-            ? path.join(process.resourcesPath, "resources", name)
-            : path.join(app.getAppPath(), "resources", name);
-    }
-
-    /**
-     * Returns the title bar overlay options for the resolved theme.
-     *
-     * @param dark - Whether the host UI is in dark mode.
-     */
-    function overlayColors(dark: boolean): Electron.TitleBarOverlayOptions {
-        return dark
-            ? { color: "#09090b", symbolColor: "#d4d4d8", height: 36 }
-            : { color: "#fafafa", symbolColor: "#52525b", height: 36 };
-    }
 
     /**
      * Refreshes the main window title bar overlay from the current theme.
@@ -100,18 +202,6 @@ if (!app.requestSingleInstanceLock()) {
             logError(
                 "titlebar-overlay",
                 err instanceof Error ? err.message : String(err),
-            );
-        }
-    }
-
-    /**
-     * Pushes the current theme to every open renderer window.
-     */
-    function broadcastTheme(): void {
-        for (const w of BrowserWindow.getAllWindows()) {
-            w.webContents.send(
-                "theme:changed",
-                nativeTheme.shouldUseDarkColors,
             );
         }
     }
@@ -198,9 +288,9 @@ if (!app.requestSingleInstanceLock()) {
             mainWindow = null;
         });
 
-        mainWindow.on("close", (e) => {
+        mainWindow.on("close", (event) => {
             if (!quitting && loadSettings().closeToTray) {
-                e.preventDefault();
+                event.preventDefault();
                 mainWindow?.hide();
             }
         });
@@ -222,6 +312,8 @@ if (!app.requestSingleInstanceLock()) {
 
     /**
      * Returns the detected tool list, computing it on first use.
+     *
+     * @returns The cached tool list.
      */
     function getTools(): Tool[] {
         if (!toolsCache) {
@@ -241,6 +333,7 @@ if (!app.requestSingleInstanceLock()) {
      * Saves settings and invalidates the tool cache.
      *
      * @param settings - The settings to persist.
+     * @returns The same settings, so callers can reuse the value.
      */
     function persist(settings: AppSettings): AppSettings {
         saveSettings(settings);
@@ -252,14 +345,16 @@ if (!app.requestSingleInstanceLock()) {
      * Assembles the tray context menu, including up to five recent files.
      * Stale recent entries (paths that no longer resolve inside a
      * registered region) are pruned and persisted before rendering.
+     *
+     * @returns The tray context menu.
      */
     function buildTrayMenu(): Menu {
         const settings = loadSettings();
         const validRecents: string[] = [];
         const recents: Electron.MenuItemConstructorOptions[] = [];
-        for (const p of settings.recentFiles.slice(0, 5)) {
+        for (const recentPath of settings.recentFiles.slice(0, 5)) {
             try {
-                const canonical = assertRegistered(p);
+                const canonical = assertRegistered(recentPath);
                 validRecents.push(canonical);
                 recents.push({
                     label: path.basename(canonical) || canonical,
@@ -288,7 +383,7 @@ if (!app.requestSingleInstanceLock()) {
         }
         const template: Electron.MenuItemConstructorOptions[] = [
             { label: "Open Maestro", click: () => showMainWindow() },
-            ...(recents.length > 0
+            ...(recents.length
                 ? [
                       {
                           label: "Recent files",
@@ -314,11 +409,11 @@ if (!app.requestSingleInstanceLock()) {
     function createTray(): void {
         try {
             const img = nativeImage.createFromPath(resourcePath("tray.png"));
-            const hi = resourcePath("tray-2x.png");
-            if (fs.existsSync(hi)) {
+            const highResIcon = resourcePath("tray-2x.png");
+            if (fs.existsSync(highResIcon)) {
                 img.addRepresentation({
                     scaleFactor: 2.0,
-                    buffer: fs.readFileSync(hi),
+                    buffer: fs.readFileSync(highResIcon),
                 });
             }
             tray = new Tray(img);
@@ -332,54 +427,6 @@ if (!app.requestSingleInstanceLock()) {
         } catch (err) {
             logError("tray", err instanceof Error ? err.message : String(err));
         }
-    }
-
-    /**
-     * Returns a normalized, lower-cased path key for set lookups.
-     * Lowercasing relies on Windows case-insensitive filesystems.
-     */
-    function normalizeKey(p: string): string {
-        return path.normalize(p).toLowerCase();
-    }
-
-    /**
-     * Reports whether the leaf entry itself is a symlink or junction, using
-     * a no-follow check so planted reparse points cannot redirect file
-     * operations that would otherwise follow them.
-     *
-     * @param p - Absolute path to inspect.
-     * @returns True when the leaf is a reparse point.
-     */
-    function isSymlinkLeaf(p: string): boolean {
-        try {
-            return fs.lstatSync(p).isSymbolicLink();
-        } catch {
-            return false;
-        }
-    }
-
-    /**
-     * Checks if a JSON-like string has excessive nesting depth.
-     * Counts opening brackets to estimate nesting level.
-     *
-     * @param content - The string content to check.
-     * @returns true if nesting appears excessive.
-     */
-    function hasExcessiveNesting(content: string): boolean {
-        let depth = 0;
-        let maxDepth = 0;
-        for (let i = 0; i < content.length; i += 1) {
-            const ch = content[i];
-            if (ch === "{" || ch === "[") {
-                depth += 1;
-                if (depth > maxDepth) {
-                    maxDepth = depth;
-                }
-            } else if (ch === "}" || ch === "]") {
-                depth = Math.max(0, depth - 1);
-            }
-        }
-        return maxDepth > 10000;
     }
 
     let watcher: fs.FSWatcher | null = null;
@@ -428,6 +475,8 @@ if (!app.requestSingleInstanceLock()) {
     /**
      * Coalesces rapid change events for one path into a single
      * `fs:changed` notification, debounced at 250ms.
+     *
+     * @param fullPath - The changed path to announce.
      */
     function scheduleNotify(fullPath: string): void {
         const now = Date.now();
@@ -448,8 +497,8 @@ if (!app.requestSingleInstanceLock()) {
         }
         const timer = setTimeout(() => {
             notifyTimers.delete(key);
-            for (const w of BrowserWindow.getAllWindows()) {
-                w.webContents.send("fs:changed", fullPath);
+            for (const browserWindow of BrowserWindow.getAllWindows()) {
+                browserWindow.webContents.send("fs:changed", fullPath);
             }
         }, 250);
         notifyTimers.set(key, timer);
@@ -458,6 +507,10 @@ if (!app.requestSingleInstanceLock()) {
     /**
      * Starts watching a file or folder, reusing the current watcher when
      * the target root has not changed.
+     *
+     * @param target - Absolute path to watch.
+     * @param dirMode - Whether to watch the whole directory tree rather than
+     * the parent folder of a single file.
      */
     function startWatch(target: string, dirMode = false): void {
         const dir = dirMode ? path.normalize(target) : path.dirname(target);
@@ -509,36 +562,12 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     /**
-     * Registers an IPC handler that logs and rethrows any error.
-     *
-     * @param channel - The IPC channel name.
-     * @param fn - The async handler implementation.
-     */
-    function safe(channel: string, fn: (...args: unknown[]) => unknown): void {
-        ipcMain.handle(channel, async (_e, ...args: unknown[]) => {
-            try {
-                return await fn(...args);
-            } catch (err) {
-                const message =
-                    err instanceof Error ? err.message : String(err);
-                logError(
-                    channel,
-                    err instanceof Error ? (err.stack ?? message) : message,
-                );
-                // Sanitize the rethrow so the renderer only sees the message.
-                // Full stack is captured in the log above.
-                // eslint-disable-next-line preserve-caught-error
-                throw new Error(message);
-            }
-        });
-    }
-
-    /**
      * Returns true when the given real path is a registered root, sits
      * inside a registered folder, or matches a registered file exactly.
      *
      * @param tools - The detected tool list.
      * @param real - A realpath-resolved absolute path.
+     * @returns True when the path is covered by a registered region.
      */
     function isWithinRegistered(tools: Tool[], real: string): boolean {
         const key = normalizeKey(real);
@@ -601,13 +630,14 @@ if (!app.requestSingleInstanceLock()) {
      * @throws When the path is not a registered file.
      */
     function assertRegistered(raw: unknown): string {
-        const p = canonicalize(raw);
-        const exact = registeredPaths(getTools()).has(normalizeKey(p));
-        const inFolder = findContainingFolder(getTools(), p) !== undefined;
+        const canonical = canonicalize(raw);
+        const exact = registeredPaths(getTools()).has(normalizeKey(canonical));
+        const inFolder =
+            findContainingFolder(getTools(), canonical) !== undefined;
         if (!exact && !inFolder) {
             throw new Error("Path is not a registered config file");
         }
-        return p;
+        return canonical;
     }
 
     /**
@@ -618,18 +648,18 @@ if (!app.requestSingleInstanceLock()) {
      * @throws When the path is outside any registered folder.
      */
     function assertInsideFolder(raw: unknown): string {
-        const p = canonicalize(raw);
-        const key = normalizeKey(p);
+        const canonical = canonicalize(raw);
+        const key = normalizeKey(canonical);
         if (
             !registeredFolderRoots(getTools()).has(key) &&
-            findContainingFolder(getTools(), p) === undefined
+            findContainingFolder(getTools(), canonical) === undefined
         ) {
             throw new Error("Folder is not registered");
         }
-        if (fs.existsSync(p) && !fs.statSync(p).isDirectory()) {
+        if (fs.existsSync(canonical) && !fs.statSync(canonical).isDirectory()) {
             throw new Error("Path is not a folder");
         }
-        return p;
+        return canonical;
     }
 
     /**
@@ -640,17 +670,17 @@ if (!app.requestSingleInstanceLock()) {
      * @throws When the path is not a registered file or folder.
      */
     function assertRevealPath(raw: unknown): string {
-        const p = canonicalize(raw);
-        const key = normalizeKey(p);
+        const canonical = canonicalize(raw);
+        const key = normalizeKey(canonical);
         const tools = getTools();
         const registered =
             registeredPaths(tools).has(key) ||
             registeredFolderRoots(tools).has(key) ||
-            findContainingFolder(tools, p) !== undefined;
+            findContainingFolder(tools, canonical) !== undefined;
         if (!registered) {
             throw new Error("Path is not a registered config file");
         }
-        return p;
+        return canonical;
     }
 
     /**
@@ -674,9 +704,9 @@ if (!app.requestSingleInstanceLock()) {
             if (fs.statSync(filePath).isDirectory()) {
                 throw new Error("Path is a folder, not a file");
             }
-            let fd: number;
+            let handle: number;
             try {
-                fd = fs.openSync(filePath, "r");
+                handle = fs.openSync(filePath, "r");
             } catch (err) {
                 throw new Error(
                     `Cannot open file: ${
@@ -686,21 +716,21 @@ if (!app.requestSingleInstanceLock()) {
                 );
             }
             try {
-                const st = fs.fstatSync(fd);
-                if (st.size > 5 * 1024 * 1024) {
+                const stats = fs.fstatSync(handle);
+                if (stats.size > 5 * 1024 * 1024) {
                     throw new Error(
                         "File is larger than 5 MB. Open it externally instead.",
                     );
                 }
                 return {
                     exists: true,
-                    content: fs.readFileSync(fd, "utf8"),
-                    size: st.size,
-                    mtime: st.mtimeMs,
+                    content: fs.readFileSync(handle, "utf8"),
+                    size: stats.size,
+                    mtime: stats.mtimeMs,
                 };
             } finally {
                 try {
-                    fs.closeSync(fd);
+                    fs.closeSync(handle);
                 } catch {
                     // ignore
                 }
@@ -746,7 +776,7 @@ if (!app.requestSingleInstanceLock()) {
                 // symlink swap cannot redirect the backup at another file,
                 // and refuse a symlink planted at the target itself.
                 const secret = isSecretPath(getTools(), filePath);
-                let srcFd: number | null = null;
+                let sourceHandle: number | null = null;
                 let created = false;
                 let skipBackup: boolean;
                 if (fs.existsSync(filePath)) {
@@ -754,8 +784,8 @@ if (!app.requestSingleInstanceLock()) {
                         return { ok: false, error: "Target path is a symlink" };
                     }
                     try {
-                        srcFd = fs.openSync(filePath, "r");
-                        skipBackup = fs.fstatSync(srcFd).size === 0;
+                        sourceHandle = fs.openSync(filePath, "r");
+                        skipBackup = fs.fstatSync(sourceHandle).size === 0;
                     } catch (err) {
                         logError(
                             "file:write-stat",
@@ -772,7 +802,7 @@ if (!app.requestSingleInstanceLock()) {
                     try {
                         backupPath = backupFile(filePath, {
                             secret,
-                            fd: srcFd,
+                            fd: sourceHandle,
                         });
                     } catch (err) {
                         logError(
@@ -781,9 +811,9 @@ if (!app.requestSingleInstanceLock()) {
                         );
                     }
                 }
-                if (srcFd !== null) {
+                if (sourceHandle !== null) {
                     try {
-                        fs.closeSync(srcFd);
+                        fs.closeSync(sourceHandle);
                     } catch {
                         // ignore
                     }
@@ -822,20 +852,20 @@ if (!app.requestSingleInstanceLock()) {
         );
 
         safe("shell:reveal", (rawPath: unknown): void => {
-            const p = assertRevealPath(rawPath);
-            if (fs.existsSync(p)) {
-                shell.showItemInFolder(p);
+            const canonical = assertRevealPath(rawPath);
+            if (fs.existsSync(canonical)) {
+                shell.showItemInFolder(canonical);
             } else {
-                void shell.openPath(path.dirname(p));
+                void shell.openPath(path.dirname(canonical));
             }
         });
 
         safe("shell:open", async (rawPath: unknown): Promise<OpResult> => {
-            const p = assertRegistered(rawPath);
-            if (!fs.existsSync(p)) {
+            const canonical = assertRegistered(rawPath);
+            if (!fs.existsSync(canonical)) {
                 return { ok: false, error: "File does not exist yet" };
             }
-            const err = await shell.openPath(p);
+            const err = await shell.openPath(canonical);
             return err ? { ok: false, error: err } : { ok: true };
         });
 
@@ -918,8 +948,8 @@ if (!app.requestSingleInstanceLock()) {
                     };
                 }
             }
-            const p = path.normalize(rawPath.trim());
-            if (!path.isAbsolute(p)) {
+            const normalized = path.normalize(rawPath.trim());
+            if (!path.isAbsolute(normalized)) {
                 return {
                     ok: false,
                     error: "Path must be absolute (e.g. C:\\Users\\...)",
@@ -927,23 +957,26 @@ if (!app.requestSingleInstanceLock()) {
             }
             const settings = loadSettings();
             const duplicateOfCustom = settings.custom.some(
-                (c) => normalizeKey(c.path) === normalizeKey(p),
+                (c) => normalizeKey(c.path) === normalizeKey(normalized),
             );
             const duplicateOfTool = registeredPaths(getTools()).has(
-                normalizeKey(canonicalize(p)),
+                normalizeKey(canonicalize(normalized)),
             );
             if (duplicateOfCustom || duplicateOfTool) {
                 return { ok: false, error: "This path is already registered" };
             }
             try {
-                fs.accessSync(p, fs.constants.R_OK);
+                fs.accessSync(normalized, fs.constants.R_OK);
             } catch {
-                logError("custom:add-access", `Path is not yet readable: ${p}`);
+                logError(
+                    "custom:add-access",
+                    `Path is not yet readable: ${normalized}`,
+                );
             }
             settings.custom.push({
                 id: `custom-${randomUUID()}`,
                 name: trimmedName,
-                path: p,
+                path: normalized,
             });
             persist(settings);
             return { ok: true };
@@ -962,9 +995,9 @@ if (!app.requestSingleInstanceLock()) {
         });
 
         safe("recent:push", (rawPath: unknown): void => {
-            const p = assertRegistered(rawPath);
+            const canonical = assertRegistered(rawPath);
             const settings = loadSettings();
-            settings.recentFiles = pushRecent(settings.recentFiles, p);
+            settings.recentFiles = pushRecent(settings.recentFiles, canonical);
             saveSettings(settings);
         });
 
@@ -997,12 +1030,12 @@ if (!app.requestSingleInstanceLock()) {
         safe(
             "file:stat",
             (rawPath: unknown): { size: number; mtime: number } | null => {
-                const p = assertRegistered(rawPath);
-                if (!fs.existsSync(p)) {
+                const canonical = assertRegistered(rawPath);
+                if (!fs.existsSync(canonical)) {
                     return null;
                 }
-                const st = fs.statSync(p);
-                return { size: st.size, mtime: st.mtimeMs };
+                const stats = fs.statSync(canonical);
+                return { size: stats.size, mtime: stats.mtimeMs };
             },
         );
 
@@ -1093,12 +1126,12 @@ if (!app.requestSingleInstanceLock()) {
         );
 
         safe("folder:delete", async (rawFolder: unknown): Promise<OpResult> => {
-            const p = canonicalize(rawFolder);
-            const key = normalizeKey(p);
+            const canonical = canonicalize(rawFolder);
+            const key = normalizeKey(canonical);
             const tools = getTools();
             const inside =
                 registeredFolderRoots(tools).has(key) ||
-                findContainingFolder(tools, p) !== undefined;
+                findContainingFolder(tools, canonical) !== undefined;
             if (!inside) {
                 return { ok: false, error: "Folder is not registered" };
             }
@@ -1108,12 +1141,15 @@ if (!app.requestSingleInstanceLock()) {
                     error: "The root folder cannot be deleted here",
                 };
             }
-            if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) {
+            if (
+                !fs.existsSync(canonical) ||
+                !fs.statSync(canonical).isDirectory()
+            ) {
                 return { ok: false, error: "Folder does not exist" };
             }
             const trackedBefore = registeredPaths(tools);
             for (const tracked of trackedBefore) {
-                const rel = path.relative(p, tracked);
+                const rel = path.relative(canonical, tracked);
                 if (
                     rel === "" ||
                     (!rel.startsWith("..") && !path.isAbsolute(rel))
@@ -1127,7 +1163,7 @@ if (!app.requestSingleInstanceLock()) {
             const toolsFresh = getTools();
             const trackedAfter = registeredPaths(toolsFresh);
             for (const tracked of trackedAfter) {
-                const rel = path.relative(p, tracked);
+                const rel = path.relative(canonical, tracked);
                 if (
                     rel === "" ||
                     (!rel.startsWith("..") && !path.isAbsolute(rel))
@@ -1140,7 +1176,7 @@ if (!app.requestSingleInstanceLock()) {
             }
             // Fail closed when the leaf was swapped for a symlink after
             // validation; a throw here aborts the delete.
-            const fresh = canonicalize(p);
+            const fresh = canonicalize(canonical);
             if (isSymlinkLeaf(fresh)) {
                 return { ok: false, error: "Cannot delete a symlink" };
             }
@@ -1150,14 +1186,14 @@ if (!app.requestSingleInstanceLock()) {
         });
 
         safe("file:delete", async (rawPath: unknown): Promise<OpResult> => {
-            const p = assertRegistered(rawPath);
-            if (!fs.existsSync(p)) {
+            const canonical = assertRegistered(rawPath);
+            if (!fs.existsSync(canonical)) {
                 return { ok: false, error: "File does not exist" };
             }
-            if (fs.statSync(p).isDirectory()) {
+            if (fs.statSync(canonical).isDirectory()) {
                 return { ok: false, error: "Cannot delete a directory" };
             }
-            if (registeredPaths(getTools()).has(normalizeKey(p))) {
+            if (registeredPaths(getTools()).has(normalizeKey(canonical))) {
                 return {
                     ok: false,
                     error: "Root config files cannot be deleted here",
@@ -1165,7 +1201,7 @@ if (!app.requestSingleInstanceLock()) {
             }
             // Fail closed when the leaf was swapped for a symlink after
             // validation; a throw here aborts the delete.
-            const fresh = canonicalize(p);
+            const fresh = canonicalize(canonical);
             if (isSymlinkLeaf(fresh)) {
                 return { ok: false, error: "Cannot delete a symlink" };
             }
@@ -1302,16 +1338,6 @@ if (!app.requestSingleInstanceLock()) {
         .then(() => {
             const settings = loadSettings();
             let settingsDirty = false;
-            const resetBackups = (): void => {
-                try {
-                    fs.rmSync(BACKUPS_ROOT, { recursive: true, force: true });
-                } catch (err) {
-                    logError(
-                        "backup-reset",
-                        err instanceof Error ? err.message : String(err),
-                    );
-                }
-            };
             if (!settings.historyResetDone) {
                 resetBackups();
                 settings.historyResetDone = true;

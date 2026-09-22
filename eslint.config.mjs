@@ -4,9 +4,11 @@ import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import prettier from "eslint-config-prettier";
+import oxlint from "eslint-plugin-oxlint";
 
-export default tseslint.config(
-    // Global ignores
+export default [
+    js.configs.recommended,
+    ...tseslint.configs.recommended,
     {
         ignores: [
             "node_modules/**",
@@ -16,13 +18,6 @@ export default tseslint.config(
             "resources/**",
         ],
     },
-
-    // Base JavaScript recommended rules
-    js.configs.recommended,
-
-    // TypeScript recommended rules
-    ...tseslint.configs.recommended,
-
     {
         files: ["**/*.{ts,tsx}"],
         languageOptions: {
@@ -79,15 +74,15 @@ export default tseslint.config(
 
     prettier,
 
-    // Enforce braces for all control-flow blocks in the reviewed main-process
-    // entry. Placed after prettier so the rule is not disabled by
-    // eslint-config-prettier (prettier does not add braces, so the repo
-    // convention must be enforced independently). Scoped to this file to avoid
-    // flagging pre-existing violations elsewhere.
+    // Enforce braces for all control-flow blocks, per the shared JavaScript and
+    // TypeScript conventions. Placed after prettier so the rule is not disabled
+    // by eslint-config-prettier (prettier does not add braces, so the repo
+    // convention must be enforced independently).
     {
-        files: ["src/main/index.ts"],
+        files: ["**/*.{ts,tsx,mjs}"],
         rules: {
             curly: ["error", "all"],
         },
     },
-);
+    oxlint.configs["flat/recommended"],
+].flat();

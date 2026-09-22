@@ -153,6 +153,11 @@ const SectionHeader = memo(function SectionHeader({
 
 /**
  * Groups files and folders in the display order defined by the tool roots.
+ * Sections that end up empty are dropped, and root folders sort above the
+ * rest within their section.
+ *
+ * @param tool - The tool whose entries are grouped.
+ * @returns The non-empty sidebar sections, in display order.
  */
 function buildSections(tool: Tool): SidebarSection[] {
     const roots: ToolRoot[] = tool.roots ?? [];
@@ -205,23 +210,21 @@ function buildSections(tool: Tool): SidebarSection[] {
     );
 
     return [...sections, other]
-        .map((section) => ({
-            ...section,
-            files: [...section.files].sort((a, b) =>
+        .filter((section) => section.files.length || section.folders.length)
+        .map((section) => {
+            section.files = section.files.toSorted((a, b) =>
                 a.label.localeCompare(b.label),
-            ),
-            folders: [...section.folders].sort((a, b) => {
+            );
+            section.folders = section.folders.toSorted((a, b) => {
                 const aIsRoot = rootPaths.has(a.path);
                 const bIsRoot = rootPaths.has(b.path);
                 if (aIsRoot !== bIsRoot) {
                     return aIsRoot ? -1 : 1;
                 }
                 return a.label.localeCompare(b.label);
-            }),
-        }))
-        .filter(
-            (section) => section.files.length > 0 || section.folders.length > 0,
-        );
+            });
+            return section;
+        });
 }
 
 const ToolBlock = memo(function ToolBlock({
@@ -354,13 +357,16 @@ export default function Sidebar({
         Record<string, boolean>
     >({});
 
-    const groups = ORDER.map((g) => ({
-        group: g,
-        items: tools.filter((t) => t.group === g),
-    })).filter((g) => g.items.length > 0);
+    const groups = ORDER.map((group) => ({
+        group,
+        items: tools.filter((tool) => tool.group === group),
+    })).filter(({ items }) => items.length);
 
     const toggle = (key: string): void =>
-        setGroupCollapsed((c) => ({ ...c, [key]: !c[key] }));
+        setGroupCollapsed((current) => ({
+            ...current,
+            [key]: !current[key],
+        }));
 
     if (collapsed) {
         return (
