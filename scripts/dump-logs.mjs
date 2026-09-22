@@ -19,12 +19,21 @@ const MAESTRO_ROOT = path.join(BASE_DIR, "maestro");
 const LOGS_DIR = path.join(MAESTRO_ROOT, "logs");
 const BACKUPS_DIR = path.join(MAESTRO_ROOT, "backups");
 
-/** Prints a short section heading line. */
+/**
+ * Prints a short section heading line.
+ *
+ * @param {string} text - The heading to print.
+ */
 function heading(text) {
     console.log(`\n=== ${text} ===`);
 }
 
-/** Lists the contents of a directory, or reports when it cannot be read. */
+/**
+ * Lists the contents of a directory, or reports when it cannot be read.
+ * Recurses into subdirectories.
+ *
+ * @param {string} dir - The directory to list.
+ */
 function listDir(dir) {
     let entries;
     try {
@@ -37,9 +46,9 @@ function listDir(dir) {
     }
     for (const entry of entries) {
         const full = path.join(dir, entry.name);
-        let st;
+        let stats;
         try {
-            st = fs.statSync(full);
+            stats = fs.statSync(full);
         } catch (err) {
             console.log(
                 `  ${entry.name}  (cannot stat: ${err instanceof Error ? err.message : err})`,
@@ -50,13 +59,17 @@ function listDir(dir) {
             console.log(`  [dir] ${entry.name}/`);
             listDir(full);
         } else if (entry.isFile()) {
-            const mtime = new Date(st.mtimeMs).toISOString();
-            console.log(`  ${entry.name}  (${st.size} B, ${mtime})`);
+            const mtime = new Date(stats.mtimeMs).toISOString();
+            console.log(`  ${entry.name}  (${stats.size} B, ${mtime})`);
         }
     }
 }
 
-/** Prints the rotation-aware log stream, newest part first. */
+/**
+ * Prints the rotation-aware log stream, newest part first.
+ *
+ * @param {string} name - The log file name inside the logs directory.
+ */
 function dumpLog(name) {
     const file = path.join(LOGS_DIR, name);
     if (!fs.existsSync(file)) {
@@ -65,7 +78,9 @@ function dumpLog(name) {
     }
     console.log(`  (${file})`);
     const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
-    for (const line of lines) console.log(`  ${line}`);
+    for (const line of lines) {
+        console.log(`  ${line}`);
+    }
 }
 
 heading(`Maestro root (${MAESTRO_ROOT})`);

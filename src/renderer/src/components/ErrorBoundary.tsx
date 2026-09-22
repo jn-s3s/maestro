@@ -14,6 +14,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
      * Captures the thrown error into component state.
      *
      * @param error - Error thrown by a descendant.
+     * @returns The next state, holding the caught error.
      */
     static getDerivedStateFromError(error: Error): State {
         return { error };
@@ -31,6 +32,9 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
 
     /**
      * Renders the error fallback or the wrapped children.
+     *
+     * @returns The fallback screen when an error was caught, otherwise the
+     * children.
      */
     override render(): ReactNode {
         if (this.state.error) {

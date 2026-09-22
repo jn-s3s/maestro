@@ -4,14 +4,20 @@ import { langFromPath } from "../../../shared/types";
 /**
  * Formats a byte count into a compact human-readable string.
  *
- * @param n - The byte count to format.
+ * @param bytes - The byte count to format.
  * @returns The formatted size label.
  */
-export function fmtBytes(n: number): string {
-    if (!Number.isFinite(n) || n <= 0) return "0 B";
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+export function fmtBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+        return "0 B";
+    }
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+        return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**
@@ -21,7 +27,9 @@ export function fmtBytes(n: number): string {
  * @returns The formatted date, or empty when the value is unset.
  */
 export function fmtTime(ms: number): string {
-    if (!ms) return "";
+    if (!ms) {
+        return "";
+    }
     return new Intl.DateTimeFormat(undefined, {
         dateStyle: "medium",
         timeStyle: "short",

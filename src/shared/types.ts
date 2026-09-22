@@ -120,7 +120,9 @@ export interface FileStat {
 export function langFromPath(filePath: string): FileLang {
     const base = filePath.split(/[\\/]/).pop()?.toLowerCase() ?? "";
     const ext = base.includes(".") ? `.${base.split(".").pop()}` : "";
-    if (base.startsWith(".env")) return "dotenv";
+    if (base.startsWith(".env")) {
+        return "dotenv";
+    }
     switch (ext) {
         case ".json":
             return "json";

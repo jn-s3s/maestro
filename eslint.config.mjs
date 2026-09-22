@@ -74,13 +74,12 @@ export default [
 
     prettier,
 
-    // Enforce braces for all control-flow blocks in the reviewed main-process
-    // entry. Placed after prettier so the rule is not disabled by
-    // eslint-config-prettier (prettier does not add braces, so the repo
-    // convention must be enforced independently). Scoped to this file to avoid
-    // flagging pre-existing violations elsewhere.
+    // Enforce braces for all control-flow blocks, per the shared JavaScript and
+    // TypeScript conventions. Placed after prettier so the rule is not disabled
+    // by eslint-config-prettier (prettier does not add braces, so the repo
+    // convention must be enforced independently).
     {
-        files: ["src/main/index.ts"],
+        files: ["**/*.{ts,tsx,mjs}"],
         rules: {
             curly: ["error", "all"],
         },

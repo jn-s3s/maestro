@@ -22,10 +22,10 @@ const YAML_PLUGINS = [yamlPlugin];
 const MARKDOWN_PLUGINS = [markdownPlugin];
 
 /**
- * Formats document content for the given language with prettier, or with
- * @iarna/toml for TOML. JSONC formatting uses Prettier's native "jsonc"
- * parser which preserves comments and trailing commas. Never throws;
- * failures are returned as `{ ok: false, error }`.
+ * Formats document content for the given language with prettier, falling back
+ * to the `@iarna/toml` parser for TOML. JSONC formatting uses Prettier's
+ * native "jsonc" parser which preserves comments and trailing commas. Never
+ * throws; failures are returned as `{ ok: false, error }`.
  *
  * @param content - The raw editor content to format.
  * @param lang - The file language to format as.

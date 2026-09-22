@@ -46,8 +46,11 @@ export default function SettingsModal({
 
     const toggleHidden = async (id: string): Promise<void> => {
         const next = new Set(hiddenSet);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
+        if (next.has(id)) {
+            next.delete(id);
+        } else {
+            next.add(id);
+        }
         setHiddenSet(next);
         try {
             await window.api.setHidden([...next]);
@@ -81,9 +84,9 @@ export default function SettingsModal({
     const addCustom = async (): Promise<void> => {
         setError(null);
         try {
-            const res = await window.api.addCustom(name, path);
-            if (!res.ok) {
-                setError(res.error ?? "Failed to add");
+            const result = await window.api.addCustom(name, path);
+            if (!result.ok) {
+                setError(result.error ?? "Failed to add");
                 return;
             }
             setName("");

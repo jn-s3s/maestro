@@ -16,7 +16,9 @@ function devCspRelax(): Plugin {
         transformIndexHtml: {
             order: "pre",
             handler(html, ctx) {
-                if (!ctx.server) return html;
+                if (!ctx.server) {
+                    return html;
+                }
                 return html.replace(
                     "connect-src 'self'",
                     "connect-src 'self' ws://localhost:* ws://127.0.0.1:*",

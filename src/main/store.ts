@@ -42,21 +42,33 @@ const DEFAULT_SETTINGS: AppSettings = {
     custom: [],
 };
 
+/**
+ * Narrows an untrusted stored value to a list of strings.
+ *
+ * @param value - The raw value read from settings.
+ * @returns The string entries, or an empty list when the value is not an array.
+ */
 function stringArray(value: unknown): string[] {
     return Array.isArray(value)
-        ? value.filter((x): x is string => typeof x === "string")
+        ? value.filter((entry): entry is string => typeof entry === "string")
         : [];
 }
 
+/**
+ * Narrows an untrusted stored value to well-formed custom entries.
+ *
+ * @param value - The raw value read from settings.
+ * @returns The custom entries that carry id, name and path strings.
+ */
 function customEntries(value: unknown): CustomEntry[] {
     return Array.isArray(value)
         ? value.filter(
-              (x): x is CustomEntry =>
-                  typeof x === "object" &&
-                  x !== null &&
-                  typeof (x as { id?: unknown }).id === "string" &&
-                  typeof (x as { name?: unknown }).name === "string" &&
-                  typeof (x as { path?: unknown }).path === "string",
+              (entry): entry is CustomEntry =>
+                  typeof entry === "object" &&
+                  entry !== null &&
+                  typeof (entry as { id?: unknown }).id === "string" &&
+                  typeof (entry as { name?: unknown }).name === "string" &&
+                  typeof (entry as { path?: unknown }).path === "string",
           )
         : [];
 }
@@ -155,21 +167,21 @@ export function logError(scope: string, detail: string): void {
 /**
  * Returns a normalized, lower-cased path for Windows-insensitive comparisons.
  *
- * @param p - The path to normalize.
+ * @param target - The path to normalize.
  * @returns The normalized, lower-cased path.
  */
-function normPath(p: string): string {
-    return path.normalize(p).toLowerCase();
+function normPath(target: string): string {
+    return path.normalize(target).toLowerCase();
 }
 
 /**
  * Zero-pads a number to two digits.
  *
- * @param n - The number to pad.
+ * @param value - The number to pad.
  * @returns The padded string.
  */
-function pad2(n: number): string {
-    return String(n).padStart(2, "0");
+function pad2(value: number): string {
+    return String(value).padStart(2, "0");
 }
 
 /**
@@ -182,7 +194,7 @@ function pad2(n: number): string {
 export function pushRecent(list: string[], filePath: string): string[] {
     return [
         filePath,
-        ...list.filter((x) => normPath(x) !== normPath(filePath)),
+        ...list.filter((entry) => normPath(entry) !== normPath(filePath)),
     ].slice(0, 5);
 }
 
@@ -208,7 +220,9 @@ export function encodeStoredBackup(text: string): string {
  * @throws When a marked blob cannot be decrypted on this machine.
  */
 export function decodeStoredBackup(text: string): string {
-    if (!text.startsWith(BACKUP_ENC_PREFIX)) return text;
+    if (!text.startsWith(BACKUP_ENC_PREFIX)) {
+        return text;
+    }
     try {
         return safeStorage.decryptString(
             Buffer.from(text.slice(BACKUP_ENC_PREFIX.length), "base64"),
@@ -221,12 +235,12 @@ export function decodeStoredBackup(text: string): string {
 /**
  * Returns the file size, or null when the file cannot be stat'd.
  *
- * @param p - Absolute path to inspect.
+ * @param target - Absolute path to inspect.
  * @returns The size in bytes, or null.
  */
-function stat(p: string): number | null {
+function stat(target: string): number | null {
     try {
-        return fs.statSync(p).size;
+        return fs.statSync(target).size;
     } catch {
         return null;
     }
@@ -235,12 +249,12 @@ function stat(p: string): number | null {
 /**
  * Reads a file as UTF-8 text, returning null on failure.
  *
- * @param p - Absolute path to read.
+ * @param target - Absolute path to read.
  * @returns The text content, or null.
  */
-function readUtf8(p: string): string | null {
+function readUtf8(target: string): string | null {
     try {
-        return fs.readFileSync(p, "utf8");
+        return fs.readFileSync(target, "utf8");
     } catch {
         return null;
     }
@@ -250,12 +264,12 @@ function readUtf8(p: string): string | null {
  * Reads stored backup text and decodes it, returning null when the file
  * cannot be read or decrypted.
  *
- * @param p - Absolute path of the stored backup.
+ * @param target - Absolute path of the stored backup.
  * @returns The decoded plaintext, or null.
  */
-function readStoredText(p: string): string | null {
+function readStoredText(target: string): string | null {
     try {
-        return decodeStoredBackup(fs.readFileSync(p, "utf8"));
+        return decodeStoredBackup(fs.readFileSync(target, "utf8"));
     } catch {
         return null;
     }
@@ -310,8 +324,8 @@ export function backupFile(
     let current: string | null = null;
     if (typeof options.fd === "number") {
         try {
-            const st = fs.fstatSync(options.fd);
-            currentSize = st.size;
+            const stats = fs.fstatSync(options.fd);
+            currentSize = stats.size;
             current = fs.readFileSync(options.fd, "utf8");
         } catch {
             currentSize = null;
@@ -320,11 +334,15 @@ export function backupFile(
     }
     if (currentSize === null) {
         currentSize = stat(filePath);
-        if (currentSize === null) return null;
+        if (currentSize === null) {
+            return null;
+        }
     }
     if (current === null) {
         current = readUtf8(filePath);
-        if (current === null) return null;
+        if (current === null) {
+            return null;
+        }
     }
 
     const dir = backupDirForFile(filePath);
@@ -338,20 +356,24 @@ export function backupFile(
             // Encrypted blobs are non-deterministic, so dedup compares
             // decrypted content instead of file sizes.
             const prev = readStoredText(latestPath);
-            if (prev !== null && prev === current) return null;
+            if (prev !== null && prev === current) {
+                return null;
+            }
         } else {
             const prevSize = stat(latestPath);
             if (prevSize !== null && prevSize === currentSize) {
                 const prev = readStoredText(latestPath);
-                if (prev !== null && prev === current) return null;
+                if (prev !== null && prev === current) {
+                    return null;
+                }
             }
         }
     }
 
-    const d = new Date();
-    const stamp = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}_${pad2(d.getHours())}-${pad2(
-        d.getMinutes(),
-    )}-${pad2(d.getSeconds())}-${String(d.getMilliseconds()).padStart(3, "0")}`;
+    const date = new Date();
+    const stamp = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}_${pad2(date.getHours())}-${pad2(
+        date.getMinutes(),
+    )}-${pad2(date.getSeconds())}-${String(date.getMilliseconds()).padStart(3, "0")}`;
     const dest = path.join(dir, `${stamp}_${path.basename(filePath)}`);
     if (secret) {
         fs.writeFileSync(dest, encodeStoredBackup(current), "utf8");
@@ -362,6 +384,14 @@ export function backupFile(
     return dest;
 }
 
+/**
+ * Deletes the oldest backups in a directory until only `keep` remain.
+ * File names sort chronologically, so the oldest entry is first. A directory
+ * that cannot be read is left untouched.
+ *
+ * @param dir - The per-file backup directory.
+ * @param keep - Number of newest backups to retain.
+ */
 function pruneBackups(dir: string, keep: number): void {
     try {
         const entries = fs.readdirSync(dir).toSorted();
