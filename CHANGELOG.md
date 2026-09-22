@@ -6,21 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
-
-- Detection of Qoder CLI and Cline CLI configs
-- Syntax highlighting for JavaScript, TypeScript and Python files, plus in-editor formatting for JavaScript and TypeScript, so hook and script configs open readable
-
-### Changed
-
-- `pnpm lint` now runs oxlint (correctness, suspicious and perf rules) before ESLint, and both must pass
-- CI now runs `pnpm format:check` as its first step, so unformatted code fails the build instead of merging
-
-### Fixed
-
-- JSONC formatting now preserves comments and trailing commas instead of rejecting files with comments ("JSONC formatting would remove comments" error)
-- JSONC comments now render with proper syntax highlighting (previously showed as plain white text)
-
 ## [1.0.0] - 2026-08-29
 
 ### Added
@@ -71,3 +56,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Config file reads, backup snapshots and destructive file operations are hardened against symlink swap races inside registered folders, and new files are created exclusively so planted symlinks cannot be followed
 - DevTools are disabled in packaged builds and window navigation is locked to the app's own entry page
 - The packaged renderer CSP no longer allows websocket connections to arbitrary hosts (development still allows the Vite HMR websocket on localhost)
+
+## [1.2.0] - 2026-09-22
+
+### Added
+
+- Detection of Qoder CLI and Cline CLI configs
+- Syntax highlighting for JavaScript, TypeScript and Python files, plus in-editor formatting for JavaScript and TypeScript, so hook and script configs open readable
+
+### Changed
+
+- `pnpm lint` now runs oxlint (correctness, suspicious and perf rules) before ESLint, and both must pass
+- CI now runs `pnpm format:check` as its first step, so unformatted code fails the build instead of merging
+
+### Fixed
+
+- JSONC formatting now preserves comments and trailing commas instead of rejecting files with comments ("JSONC formatting would remove comments" error)
+- JSONC comments now render with proper syntax highlighting (previously showed as plain white text)
