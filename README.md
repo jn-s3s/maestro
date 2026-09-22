@@ -31,9 +31,9 @@ Maestro is a Windows desktop app that detects config files and folders for popul
 
 ## Features
 
-- CodeMirror editors with syntax modes for JSON, JSONC, YAML, TOML and Markdown (dotenv and other plain text files open in a syntax free mode)
+- CodeMirror editors with syntax modes for JSON, JSONC, YAML, TOML, Markdown, JavaScript, TypeScript and Python (dotenv, shell scripts and other plain text files open in a syntax free mode)
 - Live Markdown preview with GitHub Flavored Markdown support, shown beside the editor while editing Markdown files
-- In-editor document formatting for JSON, JSONC, YAML, TOML and Markdown with the toolbar button or `Ctrl+Shift+F`; formatting stays unsaved until you save
+- In-editor document formatting for JSON, JSONC, YAML, TOML, Markdown, JavaScript and TypeScript with the toolbar button or `Ctrl+Shift+F`; formatting stays unsaved until you save. Python, dotenv, shell and plain text files have no formatter, so the button stays disabled for them
 - Optional soft wrapping for long editor lines, enabled from Settings
 - Folder browser with drill-down navigation, file and folder creation, rename, delete and reveal in Explorer via inline controls, keyboard shortcuts and a right-click context menu
 - Automatic backups with deduplication, history browsing, diff against the live editor, restore, delete and load into editor
@@ -83,7 +83,7 @@ pnpm dev
 | `pnpm build`     | Production build to `out/`                                                                                                             |
 | `pnpm icon`      | Regenerate runtime icon assets from `resources/icon-source.png`                                                                        |
 | `pnpm typecheck` | Typecheck main/preload/shared and renderer projects                                                                                    |
-| `pnpm lint`      | Lint the repo with ESLint                                                                                                              |
+| `pnpm lint`      | Lint the repo with oxlint, then ESLint                                                                                                 |
 | `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
 | `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
 | `pnpm dist`      | Regenerate icons, build and package into `release/`                                                                                    |

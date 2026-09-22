@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Detection of Qoder CLI and Cline CLI configs
+- Syntax highlighting for JavaScript, TypeScript and Python files, plus in-editor formatting for JavaScript and TypeScript, so hook and script configs open readable
+
+### Changed
+
+- `pnpm lint` now runs oxlint (correctness, suspicious and perf rules) before ESLint, and both must pass
+- CI now runs `pnpm format:check` as its first step, so unformatted code fails the build instead of merging
 
 ### Fixed
 

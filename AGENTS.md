@@ -16,7 +16,7 @@ Core stack:
 - React 19 function components and hooks
 - TypeScript in strict mode (`tsconfig.node.json` for main/preload/shared, `tsconfig.web.json` for renderer)
 - Tailwind CSS v4 via `@tailwindcss/vite`
-- CodeMirror 6 editors (JSON, JSONC, YAML, TOML, Markdown modes)
+- CodeMirror 6 editors (JSON, JSONC, YAML, TOML, Markdown, JavaScript, TypeScript and Python modes)
 - electron-builder producing a Windows portable executable
 
 The main process owns the filesystem: tool detection lives in `src/main/registry.ts`, backups in `src/main/backups.ts`, settings persistence in `src/main/store.ts`. The renderer talks to it exclusively through the IPC surface exposed by `src/preload/`. Shared types live in `src/shared/types`.
@@ -29,7 +29,7 @@ This repository uses **pnpm 10** exclusively. Do not use npm or yarn, and do not
 - `pnpm build` - production build to `out/`
 - `pnpm icon` - regenerate runtime icon assets from `resources/icon-source.png`
 - `pnpm typecheck` - typecheck both node and renderer projects
-- `pnpm lint` - lint the repo with ESLint (`pnpm lint:fix` to autofix)
+- `pnpm lint` - lint the repo with oxlint, then ESLint (`pnpm lint:fix` to autofix)
 - `pnpm logs` - print the main process log plus the settings path and the full backup tree
 - `pnpm clear` - dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched)
 - `pnpm dist` - regenerate icons, build and package into `release/`
@@ -43,8 +43,9 @@ After any code change, run in this order:
 1. If the repo has Prettier tooling, format the changed files: `pnpm exec prettier --write <changed files>` for a scoped change, or `pnpm format` when the change spans the whole repo.
 2. Run the repo's `pnpm typecheck`.
 3. Run the repo's `pnpm lint`.
+4. Run the repo's `pnpm format:check` to confirm nothing was left unformatted.
 
-All three MUST pass before a change is considered finished. There is no test framework configured in this repo. Do not invent or run a test command.
+All four MUST pass before a change is considered finished. There is no test framework configured in this repo. Do not invent or run a test command.
 
 ## Repository Layout
 

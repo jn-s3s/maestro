@@ -24,19 +24,19 @@ Useful commands:
 | `pnpm dev`       | Run the app in development mode with hot reload                                                                                        |
 | `pnpm build`     | Production build to `out/`                                                                                                             |
 | `pnpm typecheck` | Typecheck both TypeScript projects                                                                                                     |
-| `pnpm lint`      | Lint the repo with ESLint (`pnpm lint:fix` to autofix)                                                                                 |
+| `pnpm lint`      | Lint the repo with oxlint, then ESLint (`pnpm lint:fix` to autofix)                                                                    |
 | `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
 | `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
 | `pnpm dist`      | Regenerate icons, build and full packaged output into `release/`                                                                       |
 
-There is no test framework configured yet, so `pnpm typecheck` and `pnpm lint` are the verification gates. CI runs typecheck, lint and build on every push and pull request targeting `main`.
+There is no test framework configured yet, so `pnpm format:check`, `pnpm typecheck` and `pnpm lint` are the verification gates. CI runs format check, typecheck, lint and build on every push and pull request targeting `main`.
 
 ## How to contribute
 
 1. Open an issue first for anything that changes behavior, so we can agree on the approach before you write code. Small fixes can go straight to a pull request.
 2. Fork the repo and create a branch from `main`. Name it after the change, for example `feat/custom-tool-groups` or `fix/diff-scroll-sync`.
 3. Make your changes. Follow the patterns in neighboring files and the tracked style configs (`.editorconfig`, `.prettierrc.json`, `eslint.config.mjs`, `tsconfig.node.json`, `tsconfig.web.json`).
-4. Run `pnpm typecheck`, `pnpm lint` and `pnpm build` and make sure all pass.
+4. Run `pnpm format:check`, `pnpm typecheck`, `pnpm lint` and `pnpm build` and make sure all pass.
 5. Open a pull request against `main` and fill in the template.
 
 ## Commit messages
@@ -59,7 +59,7 @@ Keep the summary lowercase, imperative and under about 69 characters.
 
 ## Style notes
 
-Formatting is enforced by `.prettierrc.json` and `.editorconfig`: 4 space indentation, double quotes, semicolons, CRLF line endings. TypeScript runs in strict mode; avoid `any` and prefer union types over enums. React code uses function components with hooks only, one component per file. Lint rules are in `eslint.config.mjs`, and the strict TypeScript settings live in `tsconfig.json`, `tsconfig.node.json` and `tsconfig.web.json`. Follow the patterns already used by neighboring files rather than introducing a new style.
+Formatting is enforced by `.prettierrc.json` and `.editorconfig`: 4 space indentation, double quotes, semicolons, CRLF line endings. TypeScript runs in strict mode; avoid `any` and prefer union types over enums. React code uses function components with hooks only, one component per file. Linting runs oxlint first (its correctness, suspicious and perf rules) and then ESLint, whose rules are in `eslint.config.mjs`; the strict TypeScript settings live in `tsconfig.json`, `tsconfig.node.json` and `tsconfig.web.json`. Follow the patterns already used by neighboring files rather than introducing a new style.
 
 ## Reporting bugs and security issues
 

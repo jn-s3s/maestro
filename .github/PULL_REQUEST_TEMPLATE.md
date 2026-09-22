@@ -14,6 +14,7 @@
 
 ## Checklist
 
+- [ ] `pnpm format:check` passes locally
 - [ ] `pnpm typecheck` passes locally
 - [ ] `pnpm lint` passes locally
 - [ ] `pnpm build` passes locally
