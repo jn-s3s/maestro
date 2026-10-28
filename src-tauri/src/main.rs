@@ -1,107 +1,88 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod document;
+mod commands;
+mod shell;
+mod state;
+mod tray;
 
-use document::{Document, Fixture};
-use std::sync::Mutex;
-use tauri::{
-    Manager, State,
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-};
+use maestro_core::settings::ThemeMode;
+use state::AppState;
+use tauri::{Manager, WebviewWindow, WindowEvent};
 
-type FixtureState = Mutex<Fixture>;
-
-#[tauri::command]
-fn read_fixture(state: State<'_, FixtureState>) -> Result<Document, String> {
-    state.lock().map_err(|_| "Fixture lock unavailable")?.read()
-}
-
-#[tauri::command]
-fn save_fixture(
-    state: State<'_, FixtureState>,
-    content: String,
-    expected_revision: String,
-) -> Result<Document, String> {
-    state
-        .lock()
-        .map_err(|_| "Fixture lock unavailable")?
-        .save(&content, &expected_revision)
-}
-
-#[tauri::command]
-fn hide_to_tray(window: tauri::WebviewWindow) -> Result<(), String> {
-    window
-        .hide()
-        .map_err(|e| format!("Hide prototype window: {e}"))
-}
-
-fn show_window(app: &tauri::AppHandle) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.unminimize()?;
-        window.show()?;
-        window.set_focus()?;
+fn apply_theme(window: &WebviewWindow, mode: ThemeMode) {
+    let theme = match mode {
+        ThemeMode::System => None,
+        ThemeMode::Light => Some(tauri::Theme::Light),
+        ThemeMode::Dark => Some(tauri::Theme::Dark),
+    };
+    if let Err(error) = window.set_theme(theme) {
+        eprintln!("Apply window theme: {error}");
     }
-    Ok(())
 }
 
 fn main() {
     let result = tauri::Builder::default()
+        // The single-instance plugin must be registered before any other plugin.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main(app);
+        }))
         .setup(|app| {
-            app.manage(Mutex::new(Fixture::new()?));
-            let show =
-                MenuItem::with_id(app, "show", "Open Maestro Prototype", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit prototype", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
-            TrayIconBuilder::new()
-                .icon(tauri::image::Image::from_bytes(include_bytes!(
-                    "../../resources/tray.png"
-                ))?)
-                .tooltip("Maestro Prototype - synthetic data only")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Err(error) = show_window(app) {
-                            eprintln!("Show prototype window: {error}");
-                        }
-                    }
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if matches!(
-                        event,
-                        TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        }
-                    ) {
-                        if let Err(error) = show_window(tray.app_handle()) {
-                            eprintln!("Show prototype window: {error}");
-                        }
-                    }
-                })
-                .build(app)?;
+            let data_root =
+                AppState::resolve_data_root(app.handle()).map_err(std::io::Error::other)?;
+            let state = AppState::new(data_root).map_err(std::io::Error::other)?;
+            let theme = state.lock_inner().settings.theme;
+            app.manage(state);
+            if let Some(window) = app.get_webview_window("main") {
+                apply_theme(&window, theme);
+            }
+            tray::create(app.handle())?;
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                if let Err(error) = window.hide() {
-                    eprintln!("Hide prototype window: {error}");
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.app_handle().state::<AppState>();
+                let close_to_tray = state.lock_inner().settings.close_to_tray;
+                if close_to_tray {
+                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        eprintln!("Hide window: {error}");
+                    }
                 }
             }
         })
         .invoke_handler(tauri::generate_handler![
-            read_fixture,
-            save_fixture,
-            hide_to_tray
+            commands::list_tools,
+            commands::read_file,
+            commands::write_file,
+            commands::file_stat,
+            commands::reveal_path,
+            commands::open_file,
+            commands::open_external,
+            commands::get_settings,
+            commands::set_hidden,
+            commands::set_theme,
+            commands::set_close_to_tray,
+            commands::set_soft_wrap,
+            commands::add_custom,
+            commands::remove_custom,
+            commands::push_recent,
+            commands::list_backups,
+            commands::read_backup,
+            commands::delete_backup,
+            commands::clear_backups,
+            commands::watch_file,
+            commands::watch_folder,
+            commands::list_folder,
+            commands::create_file_in,
+            commands::create_folder_in,
+            commands::rename_file,
+            commands::rename_folder,
+            commands::delete_file,
+            commands::delete_folder,
         ])
         .run(tauri::generate_context!());
     if let Err(error) = result {
-        eprintln!("Start Maestro prototype: {error}");
+        eprintln!("Start Maestro: {error}");
         std::process::exit(1);
     }
 }

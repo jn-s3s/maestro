@@ -10,11 +10,11 @@ $ErrorActionPreference = 'Stop'
 $process = Get-Process -Id $RootProcessId
 $expectedPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../src-tauri/target/release/maestro-prototype.exe'))
 if ($process.Path -ne $expectedPath) {
-    throw 'The target process is not this checkout''s release prototype'
+    throw 'The target process is not this checkout''s release app'
 }
 $others = @(Get-Process -Name 'maestro-prototype' -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $RootProcessId })
 if ($others.Count -ne 0) {
-    throw "Close other prototype windows before the tray check. Extra PID(s): $($others.Id -join ', ')"
+    throw "Close other Maestro windows before the tray check. Extra PID(s): $($others.Id -join ', ')"
 }
 
 Add-Type -AssemblyName UIAutomationClient
@@ -159,7 +159,7 @@ function Wait-IconFocus($Icon, [int]$TimeoutMilliseconds = 600) {
 
 function Get-TrayIcon {
     $taskbar = Wait-Control $root $children ([System.Windows.Automation.PropertyCondition]::new($classProperty, 'Shell_TrayWnd')) 'Windows taskbar'
-    $iconCondition = [System.Windows.Automation.PropertyCondition]::new($nameProperty, 'Maestro Prototype - synthetic data only')
+    $iconCondition = [System.Windows.Automation.PropertyCondition]::new($nameProperty, 'Maestro')
     $icon = $taskbar.FindFirst($descendants, $iconCondition)
     if ($null -ne $icon -and -not $icon.Current.IsOffscreen) {
         return @{ icon = $icon; container = $taskbar.Current.NativeWindowHandle }
@@ -173,7 +173,7 @@ function Get-TrayIcon {
     }
     $overflowHandle = [IntPtr]$overflow.Current.NativeWindowHandle
     $null = [TrayPointer]::SetForegroundWindow($overflowHandle)
-    $icon = Wait-Control $overflow $descendants $iconCondition 'prototype tray icon'
+    $icon = Wait-Control $overflow $descendants $iconCondition 'Maestro tray icon'
     $null = Wait-IconFocus $icon
     # The flyout animates and reflows; interacting before it settles misses the icon.
     Start-Sleep -Milliseconds 400
@@ -189,7 +189,7 @@ function Wait-IconBounds($Icon) {
         }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw 'Prototype tray icon has no visible bounds'
+    throw 'Maestro tray icon has no visible bounds'
 }
 
 function Click-Icon($Icon, [string]$Button, [long]$ContainerHandle) {
@@ -289,7 +289,7 @@ function Open-TrayMenu {
         Start-Sleep -Milliseconds 300
     }
     $foreground = Get-ForegroundInfo
-    throw "The prototype tray menu did not open after four attempts. Foreground=$($foreground.className)($($foreground.processId)) ShellForeground=$lastSafe Idle=$($script:desktopIdle)"
+    throw "The Maestro tray menu did not open after four attempts. Foreground=$($foreground.className)($($foreground.processId)) ShellForeground=$lastSafe Idle=$($script:desktopIdle)"
 }
 
 function Select-MenuItem($Menu, [int]$Index) {
@@ -316,10 +316,10 @@ function Dismiss-OurMenu($Menu) {
 
 function Wait-MainWindow {
     $windowCondition = [System.Windows.Automation.AndCondition]::new(
-        [System.Windows.Automation.PropertyCondition]::new($nameProperty, 'Maestro - Phase 1 Prototype'),
+        [System.Windows.Automation.PropertyCondition]::new($nameProperty, 'Maestro'),
         [System.Windows.Automation.PropertyCondition]::new($pidProperty, $RootProcessId)
     )
-    return Wait-Control $root $children $windowCondition 'prototype window'
+    return Wait-Control $root $children $windowCondition 'Maestro window'
 }
 
 function Wait-WindowVisible([bool]$Expected) {
@@ -351,7 +351,7 @@ function Save-MenuScreenshot($Menu) {
 
 if ($Action -eq 'Visible') {
     if ($WindowHandle -le 0) {
-        throw 'Pass the prototype window handle'
+        throw 'Pass the Maestro window handle'
     }
     @{ visible = [TrayPointer]::IsWindowVisible([IntPtr]$WindowHandle) } | ConvertTo-Json -Compress
     return
@@ -392,14 +392,14 @@ if ($Action -eq 'Click') {
     }
     if ($WindowHandle -gt 0 -and -not (Wait-WindowVisible $true)) {
         if (-not $AllowMouseFallback) {
-            throw 'The tray icon activation did not show the prototype window'
+            throw 'The tray icon activation did not show the Maestro window'
         }
         $method = 'mouse'
         $cursor = Click-Icon $surface.icon 'Left' $surface.container
         Start-Sleep -Milliseconds 200
         Restore-Cursor $cursor
         if (-not (Wait-WindowVisible $true)) {
-            throw 'The tray icon click did not show the prototype window'
+            throw 'The tray icon click did not show the Maestro window'
         }
     }
     @{ action = 'Click'; invoked = $true; method = $method; idle = $script:desktopIdle } | ConvertTo-Json -Compress
@@ -425,7 +425,7 @@ if ($Action -eq 'InspectMenu') {
     return
 }
 
-$selection = if ($Action -eq 'Open') { 1 } else { 2 }
+$selection = if ($Action -eq 'Open') { 1 } else { 0 }
 $opened = $null
 $attempt = 0
 $lastError = $null
@@ -437,7 +437,15 @@ while ($attempt -lt 3 -and $null -eq $opened) {
             Save-MenuScreenshot $candidate.menu
             $script:screenshotTaken = $true
         }
-        Select-MenuItem $candidate.menu $selection
+        if ($selection -gt 0) {
+            Select-MenuItem $candidate.menu $selection
+        } else {
+            # The &Quit mnemonic activates the item regardless of the recent-file count.
+            if (-not (Test-MenuKeyTarget $candidate.menu)) {
+                throw 'The tray menu lost focus before selecting Quit'
+            }
+            Send-Key 0x51
+        }
         $opened = $candidate
     } catch {
         $lastError = $_
@@ -454,6 +462,6 @@ if ($Action -eq 'Open' -and $WindowHandle -gt 0) {
         @{ action = $Action; invoked = $true; selection = $selection; method = $opened.method; attempts = $attempt; idle = $script:desktopIdle } | ConvertTo-Json -Compress
         return
     }
-    throw 'The tray Open item did not show the prototype window'
+    throw 'The tray Open item did not show the Maestro window'
 }
 @{ action = $Action; invoked = $true; selection = $selection; method = $opened.method; attempts = $attempt; idle = $script:desktopIdle } | ConvertTo-Json -Compress

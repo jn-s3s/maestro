@@ -216,3 +216,8 @@ body {
     border: 0;
     border-top: 1px solid var(--line);
 }
+
+/* Tauri keeps native window decorations, so the Electron control strip is empty. */
+.tauri-app .titlebar-spacer {
+    display: none;
+}

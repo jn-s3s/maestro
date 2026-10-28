@@ -87,22 +87,32 @@ pnpm dev
 | `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
 | `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
 | `pnpm dist`      | Regenerate icons, build and package into `release/`                                                                                    |
+| `pnpm app:dev`   | Start the Tauri desktop app in development mode with hot reload                                                                        |
+| `pnpm app:build` | Build the Tauri release executable to `src-tauri/target/release/maestro-prototype.exe`                                                 |
+| `pnpm app:dist`  | Build the optional Tauri installer with the WebView2 offline runtime                                                                   |
 
-### Rust prototype
+### Rust desktop app
 
-Phase 1 runs alongside Electron and edits only a disposable synthetic JSON fixture. It does not discover real configurations or import existing history. Run `pnpm prototype:dev` with Rust, the Windows MSVC build tools and WebView2 installed. Closing its window hides it to the tray; the tray menu reopens or quits it. Do not paste credentials into the fixture.
+Phase 3 runs the full Maestro workflow in Tauri: real tool detection, editing, conflict-aware saving, encrypted history, folder management, custom entries, settings, watching and the tray. It reuses the existing React interface through a typed bridge. See [the Rust rewrite plan](docs/rust-rewrite-plan.md#phase-3-development-record) for the delivered surface, deliberate differences and verification results.
 
-Run `pnpm prototype:build` for the portable exe at `src-tauri/target/release/maestro-prototype.exe`, then `pnpm prototype:check tauri` or `pnpm prototype:check tray` to repeat the desktop checks. WebView2 is required. `pnpm prototype:dist` builds the optional installer for machines without it. See [the Rust rewrite plan](docs/rust-rewrite-plan.md#phase-1-development-record) for the baseline inventory, remaining checks and verification commands. The normal `pnpm dev` and `pnpm dist` commands still target Electron.
+Run `pnpm app:dev` with Rust, the Windows MSVC build tools and WebView2 installed. `pnpm app:build` creates the release executable. `pnpm app:dist` builds the optional installer for machines without WebView2. `node scripts/check-app.mjs parity` and `node scripts/check-app.mjs tray` repeat the desktop checks after a release build.
+
+The Tauri app stores its settings and encrypted history under its own app-data folder and never opens the Electron data in `%APPDATA%\maestro`. Migration of existing settings and history remains Phase 5 work. The normal `pnpm dev` and `pnpm dist` commands still target Electron.
 
 ### Project structure
 
 ```
 src/
+  app/        Tauri frontend entry and typed desktop bridge
   main/       Electron main process: window lifecycle, IPC handlers, registry, backups, store
   preload/    Context bridge exposing typed IPC to the renderer
-  renderer/   React UI (components, theme, entry)
-  shared/     Types shared between main and renderer
-scripts/      Build-time utilities such as icon generation
+  renderer/   React UI shared by Electron and the Tauri app
+  shared/     Types shared between main, preload and renderer
+  prototype/  Retired Phase 1 fixture interface, excluded from every build
+src-tauri/
+  core/       Tauri-free Rust library: detection, files, history, settings and watching
+  src/        Tauri commands, state, tray, shell integration and the legacy probe
+scripts/      Build-time utilities, GUI checks and maintenance tools
 resources/    App icon and tray images bundled as extraResources
 ```
 
@@ -120,9 +130,11 @@ This regenerates `resources/icon.png`, `resources/tray.png`, `resources/tray-2x.
 
 Electron 44 with electron-vite, React 19, TypeScript strict mode, Tailwind CSS v4 and CodeMirror 6, packaged with electron-builder as a Windows portable executable.
 
+The Rust rewrite in `src-tauri` adds Tauri 2, a Tauri-free `maestro-core` crate and a typed bridge in `src/app` that reuses the same React interface.
+
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and conventions. Please follow Conventional Commits and make sure `pnpm typecheck` passes before opening a pull request.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and conventions. Please follow Conventional Commits and make sure `pnpm typecheck` and the Rust checks pass before opening a pull request.
 
 ## Security
 

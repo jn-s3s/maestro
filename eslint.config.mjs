@@ -18,6 +18,9 @@ export default [
             "resources/**",
             "src-tauri/target/**",
             "src-tauri/gen/**",
+            // Phase 1 fixture UI, kept as historical evidence only.
+            "src/prototype/**",
+            "vite.prototype.config.ts",
         ],
     },
     {
@@ -54,7 +57,7 @@ export default [
 
     // Browser context: renderer + its type declarations
     {
-        files: ["src/renderer/**/*.{ts,tsx}", "src/prototype/**/*.{ts,tsx}"],
+        files: ["src/renderer/**/*.{ts,tsx}", "src/app/**/*.{ts,tsx}"],
         languageOptions: { globals: { ...globals.browser } },
     },
 

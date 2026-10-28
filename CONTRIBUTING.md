@@ -7,6 +7,7 @@ Thanks for your interest in contributing. This guide covers everything you need 
 - Node.js 22 or newer (the version CI builds and tests against)
 - pnpm 10 (run `corepack enable` once to pick up the version pinned in `package.json`)
 - Windows 10 or newer (tool detection and packaging targets Windows)
+- Rust 1.85 or newer with the MSVC build tools, and the WebView2 runtime, when working on the Tauri desktop app or the Rust core
 
 ## Getting started
 
@@ -19,24 +20,29 @@ pnpm dev
 
 Useful commands:
 
-| Command          | Description                                                                                                                            |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`       | Run the app in development mode with hot reload                                                                                        |
-| `pnpm build`     | Production build to `out/`                                                                                                             |
-| `pnpm typecheck` | Typecheck both TypeScript projects                                                                                                     |
-| `pnpm lint`      | Lint the repo with oxlint, then ESLint (`pnpm lint:fix` to autofix)                                                                    |
-| `pnpm logs`      | Print the main process log plus the settings path and the full backup tree                                                             |
-| `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
-| `pnpm dist`      | Regenerate icons, build and full packaged output into `release/`                                                                       |
+| Command                                                                | Description                                                                                                                            |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                                                             | Run the app in development mode with hot reload                                                                                        |
+| `pnpm build`                                                           | Production build to `out/`                                                                                                             |
+| `pnpm typecheck`                                                       | Typecheck both TypeScript projects                                                                                                     |
+| `pnpm lint`                                                            | Lint the repo with oxlint, then ESLint (`pnpm lint:fix` to autofix)                                                                    |
+| `pnpm logs`                                                            | Print the main process log plus the settings path and the full backup tree                                                             |
+| `pnpm clear`                                                           | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
+| `pnpm dist`                                                            | Regenerate icons, build and full packaged output into `release/`                                                                       |
+| `pnpm app:dev`                                                         | Run the Tauri desktop app with hot reload                                                                                              |
+| `pnpm app:build`                                                       | Build the Tauri release executable                                                                                                     |
+| `pnpm app:check parity`                                                | Run the Windows GUI parity checks; run `pnpm app:build` first                                                                          |
+| `pnpm app:check tray`                                                  | Run the Windows tray lifecycle check; run `pnpm app:build` first                                                                       |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml --workspace` | Run the Rust core and desktop tests                                                                                                    |
 
-There is no test framework configured yet, so `pnpm format:check`, `pnpm typecheck` and `pnpm lint` are the verification gates. CI runs format check, typecheck, lint and build on every push and pull request targeting `main`.
+The Electron app has no test framework configured, so `pnpm format:check`, `pnpm typecheck` and `pnpm lint` are its verification gates. CI runs format check, typecheck, lint and build on every push and pull request targeting `main`. The Tauri app additionally has 63 Rust tests and two Windows GUI checks driven by `scripts/check-app.mjs`. Changes under `src-tauri/` must also pass `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace`.
 
 ## How to contribute
 
 1. Open an issue first for anything that changes behavior, so we can agree on the approach before you write code. Small fixes can go straight to a pull request.
 2. Fork the repo and create a branch from `main`. Name it after the change, for example `feat/custom-tool-groups` or `fix/diff-scroll-sync`.
 3. Make your changes. Follow the patterns in neighboring files and the tracked style configs (`.editorconfig`, `.prettierrc.json`, `eslint.config.mjs`, `tsconfig.node.json`, `tsconfig.web.json`).
-4. Run `pnpm format:check`, `pnpm typecheck`, `pnpm lint` and `pnpm build` and make sure all pass.
+4. Run `pnpm format:check`, `pnpm typecheck`, `pnpm lint` and `pnpm build` and make sure all pass. If you touched `src-tauri/`, also run the Rust checks listed above.
 5. Open a pull request against `main` and fill in the template.
 
 ## Commit messages

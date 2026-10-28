@@ -1,6 +1,6 @@
 # Maestro 2 Rust rewrite plan
 
-Status: Phase 1 development in progress. The framework recommendation and feature priorities remain subject to prototype verification.
+Status: Phase 3 complete as of 2026-10-28. Phases 4 and 5 remain proposals.
 
 The original findings came from `review/fix-issues`. Phase 1 uses `feat/rust-rewrite-plan` at `d12492a`, whose package version is 1.1.0. The branch-specific inventory and verification results are recorded below.
 
@@ -137,7 +137,7 @@ Ship Rust/Tauri feature parity with the redesigned editor, workspaces, validatio
 
 ## Phase 1 development record
 
-Recorded on 2026-10-28. Phase 1 remains open until the clean-machine distribution checks below pass. Electron remains the application shipped by the normal build commands.
+Recorded on 2026-10-28. Phase 1 is complete. The portable exe and the optional installer were confirmed on a clean Windows environment, and the code review was approved. Electron remains the application shipped by the normal build commands.
 
 ### Baseline inventory
 
@@ -159,7 +159,7 @@ This is a source inventory, not a claim that every legacy workflow was manually 
 
 ### Prototype boundaries
 
-- `src-tauri/` is the desktop shell and fixture backend. `src/prototype/` is its React frontend, using CodeMirror and the existing editor theme without the Electron bridge.
+- `src-tauri/` is the desktop shell and fixture backend. `src/prototype/` is its React frontend, using CodeMirror and the existing editor theme without the Electron bridge. Phase 3 replaced the fixture backend and retired this frontend in place; the files are excluded from every build.
 - The only frontend commands are `read_fixture`, `save_fixture` and `hide_to_tray`, permitted only for the local main window. There are no filesystem, shell or network plugins.
 - The backend holds one anonymous temporary file open for the session. The renderer never supplies a path. JSON and a 1 MiB limit are checked in Rust. A revision hash rejects stale saves within this fixture workflow.
 - These are in-place writes to disposable data, not the production atomic-replacement, backup or concurrent-filesystem protocol. Phase 2 still owns those requirements.
@@ -197,6 +197,8 @@ Local evidence lives in ignored `out/phase1/`: `electron-baseline.json`, `electr
 
 ### Commands and verification
 
+These Phase 1 commands are historical. The `prototype:*` scripts were replaced by the `app:*` scripts in Phase 3; use the Phase 3 commands for the current desktop app.
+
 Install the Windows MSVC build tools, Rust and WebView2 before running the desktop prototype. The lockfile was built with Rust 1.99.1; its declared Rust 1.85 minimum has not been separately verified. Keep the Tauri Rust and JavaScript API minor versions compatible.
 
 ```powershell
@@ -219,8 +221,8 @@ pnpm exec electron-builder --win portable --config.directories.output=release/ph
 pnpm prototype:check electron
 pnpm prototype:check electron-packaged
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test --locked --manifest-path src-tauri/Cargo.toml
+cargo clippy --locked --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
+cargo test --locked --manifest-path src-tauri/Cargo.toml --workspace
 ```
 
 `prototype:check electron-packaged` measures `release/phase1/win-unpacked/Maestro.exe`, which the packaging step creates.
@@ -241,12 +243,136 @@ The tray driver opens the menu with the keyboard context-menu key because the ow
 
 The Tauri driver keeps Windows profile environment variables intact and redirects only WebView2 storage. Replacing the Windows home variables prevented its debugging endpoint from opening on this machine. The Electron baseline still redirects all detection roots. The driver enables a localhost debugging port only in its own Tauri child; shipped configuration does not enable one. The working launch recipe can be captured with `/run-skill-generator`.
 
-A self-review covered the command surface, capabilities, CSP, path handling and the Rust probe during this session. It tightened the oversized fixture read so it checks bytes before UTF-8 conversion and added a DPAPI null-buffer guard. It also added retrying cleanup for WebView2 profile locks. That review is not a substitute for the independent code and security reviewer passes.
+A self-review covered the command surface, capabilities, CSP, path handling and the Rust probe during this session. It tightened the oversized fixture read so it checks bytes before UTF-8 conversion and added a DPAPI null-buffer guard. It also added retrying cleanup for WebView2 profile locks.
 
-Remaining Phase 1 checks:
+### Phase 1 completion
 
-- Run the portable exe on a clean Windows machine that has WebView2 and confirm coexistence with Electron. This host cannot provide a clean machine: Hyper-V management requires administrator rights and Windows Sandbox is unavailable.
-- Optionally, run the NSIS installer on a clean Windows machine without WebView2, then check launch, uninstallation and coexistence with Electron. The installer was built but not executed.
-- Obtain the independent code and security reviewer passes required for IPC and filesystem changes. No independent reviewer was available in this environment.
+The user confirmed the portable exe and the optional installer on a clean Windows environment on 2026-10-28 and approved the code review. Phase 1 has no open gates. The detailed clean-machine results are not stored in this repository.
 
-Phases 2 through 5 have not started. Tool adapters, real-file writes, watchers, encrypted Rust history, migration and the redesigned workspace remain outside this prototype.
+## Phase 2 development record
+
+Recorded on 2026-10-28. Phase 2 is complete. The Rust core is implemented and tested against synthetic fixtures only. It was not wired into the Tauri application or the Electron app during this phase; Phase 3 wired it into the Tauri app. No real configuration file, backup or key was read or written during Phase 2.
+
+### Core crate layout
+
+`src-tauri/` is now a Cargo workspace. The Tauri prototype remains the root package and the new Tauri-free `maestro-core` crate lives in `src-tauri/core/`. The prototype app does not depend on the core yet; Phase 3 owns the bridge.
+
+| Module         | Responsibility                                                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `detection.rs` | Full port of `src/main/registry.ts`: every detected tool, folder, note and secret flag, custom entries, environment overrides and lookups |
+| `paths.rs`     | Lexical cleanup, symlink and junction resolution through existing ancestors, component-wise containment and Windows case folding          |
+| `files.rs`     | Registered path validation, bounded reads, SHA-256 revisions, conflict-aware writes and self-write marking                                |
+| `crypto.rs`    | AES-256-GCM snapshot encryption and the DPAPI-protected history key                                                                       |
+| `history.rs`   | Per-file encrypted snapshots with deduplication, retention, listing, reading, deletion and clearing                                       |
+| `watch.rs`     | notify-based file and folder watching with debounce and self-write suppression                                                            |
+
+Detection reads an injectable `DetectionEnv` instead of process globals, so XDG, `CODEX_HOME`, `QODER_CONFIG_DIR` and `CLINE_DATA_DIR` overrides are exercised without touching the real user profile. Path lookups are case-insensitive on Windows and aware of junctions through canonical resolution.
+
+### Save protocol
+
+1. Resolve the requested path, refuse link-like leaves and reject anything outside a registered file or folder.
+2. Read disk content and compare it with the expected revision. Existing files require a matching revision. New files require no revision. A file that disappeared after loading is a conflict.
+3. Re-check size and modification time before proceeding, so a change between the revision comparison and the replacement is also a conflict.
+4. Snapshot existing non-empty UTF-8 content into encrypted history. A failed snapshot aborts the save.
+5. Replace existing files through a temporary file in the same folder and `ReplaceFileW`, which preserves the original ACLs. Filesystems without `ReplaceFileW` fall back to `MoveFileExW`. Sharing violations retry briefly. New files are installed through the same temporary write and an atomic no-clobber hard link, with an exclusive-create fallback for filesystems without hard links.
+6. Mark the written and temporary paths so the watcher ignores the save.
+
+Deliberate limits: JSON and JSONC validation is not in the core yet, so Phase 3 still has to port the legacy pre-save syntax check. Three-way merges, multi-file journals and version-aware tool adapters remain future work. Save targets that are any Windows reparse point are refused conservatively. Existing files above 5 MiB or without valid UTF-8 content cannot be backed up losslessly, so they are refused before any write.
+
+### Encrypted history
+
+- Every snapshot is encrypted, not only snapshots of secret-flagged files.
+- The history key is 32 random bytes stored as `history.key` in the data root. On Windows it is protected with current-user DPAPI. A missing key is generated once; an unreadable, unprotected or damaged key fails closed instead of being replaced.
+- The on-disk format is `maestro-rust-enc:v1:` followed by base64 of a version marker, a 12-byte nonce and AES-256-GCM ciphertext. The wrapper prefix is authenticated as associated data. This prefix is intentionally distinct from the Electron `maestro-enc:v1:` format, which remains readable only through the Phase 1 probe.
+- Per-file directory names match the Electron convention exactly: the lowercased normalized path hashed with SHA-1, truncated to 12 hex characters, plus the sanitized basename truncated to 40 characters. A fixed vector was checked against the Node implementation.
+- Identical content is not stored twice, retention defaults to 20 snapshots, reads are capped at 5 MiB, and entry names reject traversal and Windows alternate data streams. Symlinked entries inside the history root are ignored.
+
+Electron-era snapshots and their profile key are not imported or modified. The existing migration probe stays a probe; Phase 5 owns real history migration and rollback.
+
+### Watching
+
+File mode watches the parent folder and reports only the target and its `.tmp-` save files. Folder mode watches recursively. Both coalesce events for 250 ms, drop paths marked as self-writes for one second, and deliver a backend error to the event callback before the watch stops.
+
+### Verification
+
+- 45 core tests across 26 unit, 6 detection, 11 file and 2 workflow cases, plus the 4 existing prototype tests, all pass.
+- Detection tests cover every bundled tool, environment overrides, China-edition Qoder, the user-local OpenCode fallback, custom file and folder entries, language inference and case-insensitive lookups.
+- File tests cover missing and existing reads, creation, stale and missing revisions, deleted targets, oversized and non-UTF-8 files, outside and traversal paths, folder and reveal validation, secret classification, backup failure blocking a save, temporary-file cleanup, deduplication and junction escapes or junction targets.
+- History tests cover round trips with Unicode, NUL and empty content, fresh nonces, tampering, wrong keys, DPAPI persistence, concurrent key creation, unprotected key refusal, retention, traversal, alternative-stream and device names, legacy directory naming and corrupted snapshots.
+- Watch tests cover file and recursive folder events, unrelated siblings, debounce, self-write suppression and stopping.
+- File symlink checks skip themselves when the account cannot create symlinks. Junction checks use `mklink /J`, which does not require administrator rights.
+
+Rust formatting, Clippy with warnings denied and the full workspace test suite pass. The repository's typecheck, lint and format checks still pass because no TypeScript or build tooling changed.
+
+Phase 3 added command wiring, the frontend bridge, JSON and JSONC validation and backup restoration. Formatting and Markdown preview were already renderer features and are now reachable from the Tauri app. Migration and the redesigned workspace remain in Phases 4 and 5.
+
+## Phase 3 development record
+
+Recorded on 2026-10-28. Phase 3 is complete. The Tauri shell runs every existing workflow against real configuration files. Electron remains the application shipped by the normal build commands, and the two versions keep separate settings and history.
+
+### Delivered surface
+
+| Area               | Behavior                                                                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Discovery          | The full `src/main/registry.ts` behavior is reachable through Tauri: every bundled tool, environment override, custom file and custom folder, with `exists`, language, secret flags, notes and sections preserved |
+| Editing            | The existing React renderer is mounted unchanged through a typed bridge. CodeMirror modes, soft wrap, unsaved prompts, formatting and the Markdown preview work as in Electron                                    |
+| Saving             | Loaded revisions are sent with each save. JSON and JSONC are validated in the core before a snapshot is written. A stale, deleted or externally changed file returns a conflict instead of overwriting            |
+| History            | Encrypted snapshots are listed, diffed, loaded, restored, deleted and cleared through the existing history modal. A failed snapshot aborts the save                                                               |
+| Folders            | Browsing, create file, create folder, rename file, rename folder and delete to the Recycle Bin. Registered roots and folders containing tracked config files are protected                                        |
+| Custom entries     | Arbitrary absolute files and folders can be registered, hidden and removed. A custom file becomes an editable entry and a custom folder becomes browsable                                                         |
+| Settings           | Theme, close to tray, soft wrap, hidden tools, five recent files and custom entries persist atomically in the Tauri data root                                                                                     |
+| Tray and lifecycle | Tray icon with Open, up to five recent files and Quit. Close to tray hides the window and keeps the draft. A second launch focuses the existing window through the single-instance plugin                         |
+| Shell integration  | Reveal in Explorer, open with the default handler, validated http, https and mailto links, and Recycle Bin deletion through the `trash` crate                                                                     |
+| Watching           | One active file or folder watch, 250 ms debounce, self-write suppression and an `fs-changed` event that drives the external-change banner                                                                         |
+
+### Command and permission surface
+
+The Tauri app exposes 28 commands: `list_tools`, `read_file`, `write_file`, `file_stat`, `reveal_path`, `open_file`, `open_external`, `get_settings`, `set_hidden`, `set_theme`, `set_close_to_tray`, `set_soft_wrap`, `add_custom`, `remove_custom`, `push_recent`, `list_backups`, `read_backup`, `delete_backup`, `clear_backups`, `watch_file`, `watch_folder`, `list_folder`, `create_file_in`, `create_folder_in`, `rename_file`, `rename_folder`, `delete_file` and `delete_folder`.
+
+Each command validates its path through the detected registry before touching the filesystem. The `app` capability enables `core:default` and only those 28 generated permissions for the `main` window. The content security policy allows local assets and Tauri IPC only.
+
+### Data boundary
+
+- The Tauri app keeps settings, the DPAPI-protected history key, encrypted snapshots and logs in its own platform app-data folder for the existing prototype identifier, normally `%APPDATA%\dev.jn-s3s.maestro.prototype` on Windows.
+- It never opens `%APPDATA%\maestro`, so Electron settings, backups and the Electron profile key remain untouched.
+- The legacy destructive startup resets are not ported. The `historyResetDone`, `perFileHistoryResetDone` and `secretBackupsEncrypted` flags are not read, no backup tree is deleted and no snapshot is re-encrypted at startup.
+- The on-disk snapshot prefix remains `maestro-rust-enc:v1:`. Electron snapshots stay unreadable until Phase 5 imports their profile key and rewrites them.
+- The identifier and the `maestro-prototype.exe` binary name are unchanged in Phase 3 so a parity build cannot collide with the shipped app. Phase 5 owns the rename, real migration and rollback.
+
+### Deliberate differences
+
+- Saving now carries the revision returned when the document was loaded. The bridge reads the current revision only when a caller omits it, which is the history restore path. A dirty editor over a changed file now reports a conflict instead of overwriting the external edit.
+- JSON and JSONC validation moved into the core and runs before the snapshot. The 10,000-level nesting guard is preserved. `serde_json` also enforces its default 128-level recursion limit, so a deeper but otherwise valid document is rejected with an invalid JSON error. No known tool configuration reaches that depth.
+- Custom entry registration now accepts arbitrary absolute paths. The Electron handler called the registered-path validator before the duplicate check, which rejected any new path outside an already registered region. The parity build fixes the documented "register any other file or folder" workflow instead of preserving the bug.
+- Tauri keeps native window decorations in Phase 3. The Electron title-bar overlay and its reserved control strip are not reproduced; Phase 4 owns the new shell chrome.
+- The tray Quit item carries a `&Quit` mnemonic so the UI Automation driver can activate it without depending on the recent-file count. The menu still shows Open, Recent files and Quit.
+
+### Verification
+
+- 63 core tests pass: 41 unit tests plus 6 detection, 14 file and 2 workflow integration tests. The 2 legacy probe tests also pass.
+- Rust formatting, Clippy with warnings denied and the full workspace test suite pass with `--locked`.
+- `pnpm typecheck`, `pnpm lint` and `pnpm format:check` pass.
+- `node scripts/check-app.mjs parity` passes 15 checks against the release executable: discovery, open, save with encrypted backup, history encryption, invalid JSON rejected, backup restore, external change warning, Markdown preview, custom entry, folder create, folder rename, folder delete to the Recycle Bin, settings persistence, theme switching and no page errors.
+- `node scripts/check-app.mjs tray` passes the tray lifecycle: native close hides the window with the draft intact, tray activation restores the draft, and tray Quit exits with code 0.
+- Evidence lives in ignored `out/phase3/`: `parity.json`, `tray.json`, `history.png`, `parity.png`, `tray-reopened.png` and `tray-menu.png`.
+- The parity driver launches the release executable with a synthetic home, app data, local app data and data root. It never touches the real profile or Electron data. It sends one synthetic empty file to the Recycle Bin as part of the delete check.
+- Not verified: a machine without WebView2, an installed NSIS build, and real settings or history migration. Those remain Phase 5 work. No installer or application was installed on this machine.
+
+A self-review covered the command surface, capability list, CSP, path validation, history path APIs, tray menu and the delegated path checks. It confirmed that the `@iarna/toml` formatter probes `eval("require('util').inspect")` inside a try/catch, so the strict `script-src 'self'` policy does not break TOML formatting. It also moved reserved device name checks into one shared helper so history entries and new files use the same rule.
+
+### Commands
+
+```powershell
+pnpm app:web
+pnpm app:dev
+pnpm app:build
+pnpm app:dist
+node scripts/check-app.mjs parity
+node scripts/check-app.mjs tray
+```
+
+`pnpm app:build` must run before either desktop check. A direct `cargo build --release` embeds the development URL instead of the bundled frontend and is not a valid check binary.
+
+### Phase 3 completion
+
+Phase 3 completion criteria are met for the existing workflows: custom entries, formatting, Markdown preview, backup restoration, folder management, settings, watching and tray behavior. Phase 4 now owns the redesigned navigation, tabs, workspaces, validation and recovery workflows. Phase 5 still owns migration, packaged beta and rollback before Electron is replaced.

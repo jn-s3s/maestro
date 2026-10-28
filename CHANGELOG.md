@@ -11,17 +11,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Detection of Qoder CLI and Cline CLI configs
 - Syntax highlighting for JavaScript, TypeScript and Python files, plus in-editor formatting for JavaScript and TypeScript, so hook and script configs open readable
 - Phase 1 of the Rust rewrite: an isolated Tauri prototype with a synthetic CodeMirror fixture, native tray verification and a synthetic Electron backup compatibility probe
+- Phase 2 of the Rust rewrite: a Tauri-free `maestro-core` crate with tool detection, conflict-aware reads and writes, encrypted history and filesystem watching, covered by synthetic-fixture tests
+- Phase 3 of the Rust rewrite: a Tauri desktop app with feature parity, including real tool detection, conflict-aware saving, encrypted history and restore, folder management, custom entries, settings, watching, tray recents and close to tray
+- A typed Tauri bridge in `src/app` that reuses the existing React interface, with theme, recent-file and filesystem-change events
+- Rust settings, JSON and JSONC save validation, folder policies, history path validation and Windows-safe entry name validation in `maestro-core`
 
 ### Changed
 
 - `pnpm lint` now runs oxlint (correctness, suspicious and perf rules) before ESLint, and both must pass
 - CI now runs `pnpm format:check` as its first step, so unformatted code fails the build instead of merging
 - Electron packaging now includes only the built main, preload and renderer output, so prototype assets cannot enter the portable app
+- The Tauri app keeps its own settings and encrypted history in its app-data folder, leaves the Electron data in `%APPDATA%\maestro` untouched and does not run the legacy destructive startup resets
+- The Phase 1 fixture interface in `src/prototype` is retired and excluded from builds
 
 ### Fixed
 
 - JSONC formatting now preserves comments and trailing commas instead of rejecting files with comments ("JSONC formatting would remove comments" error)
 - JSONC comments now render with proper syntax highlighting (previously showed as plain white text)
+- Registering a custom file or folder outside an already registered region now works instead of being rejected by the duplicate check
+- Invalid JSON and JSONC now fail before a backup is written or the configuration file is replaced
 
 ## [1.0.0] - 2026-08-29
 

@@ -27,6 +27,12 @@
         "prototype:build": "pnpm icon && tauri build --no-bundle",
         "prototype:dist": "pnpm icon && tauri build",
         "prototype:check": "node scripts/check-prototype.mjs",
+        "app:web": "vite --config vite.app.config.ts",
+        "app:web:build": "vite build --config vite.app.config.ts",
+        "app:dev": "pnpm icon && tauri dev",
+        "app:build": "pnpm icon && tauri build --no-bundle",
+        "app:dist": "pnpm icon && tauri build",
+        "app:check": "node scripts/check-app.mjs",
         "postinstall": "node node_modules/electron/install.js"
     },
     "pnpm": {

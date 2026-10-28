@@ -91,6 +91,7 @@ interface Selection {
     content: string;
     size: number;
     mtime: number;
+    revision: string | null;
 }
 
 interface FolderContext {
@@ -237,6 +238,7 @@ function AppContent(): JSX.Element {
                         content: result.content,
                         size: result.size,
                         mtime: result.mtime,
+                        revision: result.revision ?? null,
                     });
                     clearDirty();
                     setReloadNonce((n) => n + 1);
@@ -473,7 +475,11 @@ function AppContent(): JSX.Element {
         savingRef.current = true;
         setSaving(true);
         try {
-            const result = await window.api.writeFile(sel.file.path, content);
+            const result = await window.api.writeFile(
+                sel.file.path,
+                content,
+                sel.revision,
+            );
             if (result.ok) {
                 clearDirty();
                 setExternal(false);
@@ -493,7 +499,15 @@ function AppContent(): JSX.Element {
                     // Keep the local Blob size/mtime estimate on stat failure.
                 }
                 setSel((cur) =>
-                    cur ? { ...cur, exists: true, size, mtime } : cur,
+                    cur
+                        ? {
+                              ...cur,
+                              exists: true,
+                              size,
+                              mtime,
+                              revision: result.revision ?? cur.revision,
+                          }
+                        : cur,
                 );
                 toast.success(
                     result.created
@@ -622,7 +636,7 @@ function AppContent(): JSX.Element {
                 >
                     <Settings2 size={15} />
                 </button>
-                <div className="drag-region w-34 shrink-0" />
+                <div className="drag-region titlebar-spacer w-34 shrink-0" />
             </header>
 
             <div className="flex min-h-0 flex-1">

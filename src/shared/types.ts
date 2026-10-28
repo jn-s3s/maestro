@@ -88,10 +88,16 @@ export interface ReadResult {
     content: string;
     size: number;
     mtime: number;
+    revision?: string | null;
 }
 
 export type WriteResult =
-    | { ok: true; created: boolean; backupPath: string | null }
+    | {
+          ok: true;
+          created: boolean;
+          backupPath: string | null;
+          revision?: string;
+      }
     | { ok: false; error: string };
 
 export interface OpResult {
@@ -161,7 +167,11 @@ export function langFromPath(filePath: string): FileLang {
 export interface Api {
     listTools(): Promise<{ tools: Tool[] }>;
     readFile(path: string): Promise<ReadResult>;
-    writeFile(path: string, content: string): Promise<WriteResult>;
+    writeFile(
+        path: string,
+        content: string,
+        expectedRevision?: string | null,
+    ): Promise<WriteResult>;
     reveal(path: string): Promise<void>;
     openFile(path: string): Promise<OpResult>;
     openExternal(url: string): Promise<void>;
