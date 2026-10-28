@@ -88,6 +88,12 @@ pnpm dev
 | `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
 | `pnpm dist`      | Regenerate icons, build and package into `release/`                                                                                    |
 
+### Rust prototype
+
+Phase 1 runs alongside Electron and edits only a disposable synthetic JSON fixture. It does not discover real configurations or import existing history. Run `pnpm prototype:dev` with Rust, the Windows MSVC build tools and WebView2 installed. Closing its window hides it to the tray; the tray menu reopens or quits it. Do not paste credentials into the fixture.
+
+Run `pnpm prototype:build` for the portable exe at `src-tauri/target/release/maestro-prototype.exe`, then `pnpm prototype:check tauri` or `pnpm prototype:check tray` to repeat the desktop checks. WebView2 is required. `pnpm prototype:dist` builds the optional installer for machines without it. See [the Rust rewrite plan](docs/rust-rewrite-plan.md#phase-1-development-record) for the baseline inventory, remaining checks and verification commands. The normal `pnpm dev` and `pnpm dist` commands still target Electron.
+
 ### Project structure
 
 ```

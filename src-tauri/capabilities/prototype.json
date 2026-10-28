@@ -1,0 +1,10 @@
+{
+    "identifier": "prototype",
+    "description": "Only the local main window may edit its synthetic fixture or hide to the tray.",
+    "windows": ["main"],
+    "permissions": [
+        "allow-read-fixture",
+        "allow-save-fixture",
+        "allow-hide-to-tray"
+    ]
+}

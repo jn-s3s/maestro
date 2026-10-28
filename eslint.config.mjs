@@ -16,6 +16,8 @@ export default [
             "release/**",
             "build/**",
             "resources/**",
+            "src-tauri/target/**",
+            "src-tauri/gen/**",
         ],
     },
     {
@@ -52,7 +54,7 @@ export default [
 
     // Browser context: renderer + its type declarations
     {
-        files: ["src/renderer/**/*.{ts,tsx}"],
+        files: ["src/renderer/**/*.{ts,tsx}", "src/prototype/**/*.{ts,tsx}"],
         languageOptions: { globals: { ...globals.browser } },
     },
 

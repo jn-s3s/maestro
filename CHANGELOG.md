@@ -10,11 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Detection of Qoder CLI and Cline CLI configs
 - Syntax highlighting for JavaScript, TypeScript and Python files, plus in-editor formatting for JavaScript and TypeScript, so hook and script configs open readable
+- Phase 1 of the Rust rewrite: an isolated Tauri prototype with a synthetic CodeMirror fixture, native tray verification and a synthetic Electron backup compatibility probe
 
 ### Changed
 
 - `pnpm lint` now runs oxlint (correctness, suspicious and perf rules) before ESLint, and both must pass
 - CI now runs `pnpm format:check` as its first step, so unformatted code fails the build instead of merging
+- Electron packaging now includes only the built main, preload and renderer output, so prototype assets cannot enter the portable app
 
 ### Fixed
 
