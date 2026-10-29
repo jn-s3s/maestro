@@ -3,9 +3,10 @@ mod support;
 use std::fs;
 
 use maestro_core::detection::{
-    FileLang, ToolGroup, detect_tools, find_containing_folder, is_secret_path,
-    is_within_registered, registered_paths,
+    FileLang, ToolGroup, detect_tools, detect_tools_with_workspaces, find_containing_folder,
+    is_secret_path, is_within_registered, registered_paths,
 };
+use maestro_core::settings::Workspace;
 use support::{Synthetic, custom};
 
 #[test]
@@ -236,4 +237,131 @@ fn finds_the_deepest_registered_folder() {
     let folder = find_containing_folder(&tools, &nested).expect("containing folder");
     assert_eq!(folder.id, "claude-code/folder-skills");
     assert!(find_containing_folder(&tools, &outside).is_none());
+}
+
+#[test]
+fn detects_project_configs_inside_a_workspace() {
+    let synthetic = Synthetic::new();
+    let project = synthetic.root().join("project");
+    fs::create_dir_all(project.join(".claude")).unwrap();
+    fs::create_dir_all(project.join(".vscode")).unwrap();
+    fs::write(project.join(".claude/settings.json"), "{}").unwrap();
+    fs::write(project.join(".vscode/settings.json"), "{}").unwrap();
+    fs::write(project.join(".mcp.json"), "{}").unwrap();
+    fs::write(project.join("AGENTS.md"), "# Agents").unwrap();
+    fs::write(project.join("notes.txt"), "not registered").unwrap();
+    let workspace = Workspace {
+        id: "workspace-1".into(),
+        name: "Example project".into(),
+        path: project.clone(),
+    };
+
+    let tools = detect_tools_with_workspaces(&synthetic.env(), &[], &[workspace]);
+    let tool = tools
+        .iter()
+        .find(|tool| tool.id == "workspace-1")
+        .expect("workspace tool");
+    assert_eq!(tool.group, ToolGroup::Workspace);
+    assert_eq!(tool.name, "Example project");
+    let labels: Vec<&str> = tool.files.iter().map(|file| file.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "AGENTS.md",
+            ".mcp.json",
+            "Claude settings.json",
+            "VS Code settings.json"
+        ]
+    );
+    assert!(tool.files.iter().all(|file| file.exists));
+    assert_eq!(
+        tool.files.iter().filter(|file| file.secret).count(),
+        1,
+        "project MCP servers can carry credentials"
+    );
+    assert!(
+        tool.files
+            .iter()
+            .any(|file| file.label == ".mcp.json" && file.secret)
+    );
+    assert!(
+        tool.files
+            .iter()
+            .all(|file| file.section.as_deref() == Some("Workspace"))
+    );
+    assert!(
+        tool.files
+            .iter()
+            .find(|file| file.label == "Claude settings.json")
+            .and_then(|file| file.note.as_deref())
+            .unwrap_or_default()
+            .contains("precedence")
+    );
+    assert!(registered_paths(&tools).contains(&maestro_core::paths::path_key(
+        &maestro_core::paths::canonical_or_lexical(&project.join(".claude/settings.json"))
+    )));
+}
+
+#[test]
+fn workspace_without_project_configs_stays_visible() {
+    let synthetic = Synthetic::new();
+    let project = synthetic.root().join("empty-project");
+    fs::create_dir_all(&project).unwrap();
+    let workspace = Workspace {
+        id: "workspace-empty".into(),
+        name: "Empty".into(),
+        path: project,
+    };
+    let tools = detect_tools_with_workspaces(&synthetic.env(), &[], &[workspace]);
+    let tool = tools
+        .iter()
+        .find(|tool| tool.id == "workspace-empty")
+        .expect("workspace tool");
+    assert!(tool.files.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_detection_skips_symlinked_configs() {
+    use std::os::unix::fs::symlink;
+
+    let synthetic = Synthetic::new();
+    let project = synthetic.root().join("project");
+    fs::create_dir_all(&project).unwrap();
+    let outside = synthetic.write("outside.md", "# outside");
+    symlink(&outside, project.join("AGENTS.md")).unwrap();
+    let workspace = Workspace {
+        id: "workspace-link".into(),
+        name: "Linked".into(),
+        path: project,
+    };
+    let tools = detect_tools_with_workspaces(&synthetic.env(), &[], &[workspace]);
+    let tool = tools.iter().find(|tool| tool.id == "workspace-link").unwrap();
+    assert!(tool.files.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_detection_skips_configs_through_symlinked_parent_directories() {
+    use std::os::unix::fs::symlink;
+
+    let synthetic = Synthetic::new();
+    let project = synthetic.root().join("project");
+    let outside = synthetic.root().join("outside");
+    fs::create_dir_all(&project).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("settings.json"), "{}").unwrap();
+    symlink(&outside, project.join(".claude")).unwrap();
+    let workspace = Workspace {
+        id: "workspace-parent-link".into(),
+        name: "Linked parent".into(),
+        path: project,
+    };
+
+    let tools = detect_tools_with_workspaces(&synthetic.env(), &[], &[workspace]);
+    let tool = tools
+        .iter()
+        .find(|tool| tool.id == "workspace-parent-link")
+        .unwrap();
+    assert!(tool.files.is_empty());
 }

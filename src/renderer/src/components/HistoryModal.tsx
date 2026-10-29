@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from "react";
 import { diffLines } from "diff";
-import { FileDown, History, Trash2, Undo2, X } from "lucide-react";
+import { FileDown, History, Star, Trash2, Undo2, X } from "lucide-react";
 import type { BackupEntry, ToolFile } from "../../../shared/types";
 import { useToast } from "./useToast";
 import ConfirmDialog from "./ConfirmDialog";
@@ -44,6 +44,8 @@ export default function HistoryModal({
     const [busy, setBusy] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
     const [reference, setReference] = useState<string | null>(null);
+    const [nameDraft, setNameDraft] = useState("");
+    const supportsMeta = window.api.capabilities.snapshotMeta;
 
     useEffect(() => {
         void window.api
@@ -86,16 +88,22 @@ export default function HistoryModal({
 
     const pickEntry = async (entry: BackupEntry): Promise<void> => {
         setSelected(entry);
+        setNameDraft(entry.name ?? "");
         setContent(null);
         setReference(null);
         try {
             const result = await window.api.readBackup(entry.path);
             setContent(result.content);
             // Compare against the next-newer backup, or the live editor when none.
-            const index = entries.findIndex(
+            const chronological = entries.toSorted(
+                (a, b) =>
+                    b.mtime - a.mtime ||
+                    (a.file < b.file ? 1 : a.file > b.file ? -1 : 0),
+            );
+            const index = chronological.findIndex(
                 (candidate) => candidate.path === entry.path,
             );
-            const next = index > 0 ? entries[index - 1] : null;
+            const next = index > 0 ? chronological[index - 1] : null;
             const nextContent = next
                 ? (await window.api.readBackup(next.path)).content
                 : getCurrent();
@@ -119,6 +127,53 @@ export default function HistoryModal({
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
         }
+    };
+
+    const updateMeta = async (
+        entry: BackupEntry,
+        name: string | null,
+        pinned: boolean,
+    ): Promise<void> => {
+        if (!window.api.setSnapshotMeta) {
+            return;
+        }
+        try {
+            const result = await window.api.setSnapshotMeta(
+                entry.path,
+                name,
+                pinned,
+            );
+            if (!result.ok) {
+                toast.error(result.error ?? "Failed to update snapshot");
+                return;
+            }
+            setEntries((current) =>
+                current.map((candidate) =>
+                    candidate.path === entry.path
+                        ? { ...candidate, name, pinned }
+                        : candidate,
+                ),
+            );
+            setSelected((current) =>
+                current?.path === entry.path
+                    ? { ...current, name, pinned }
+                    : current,
+            );
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        }
+    };
+
+    const saveName = async (): Promise<void> => {
+        if (!selected || !supportsMeta) {
+            return;
+        }
+        const trimmed = nameDraft.trim();
+        const next = trimmed ? trimmed : null;
+        if (next === (selected.name ?? null)) {
+            return;
+        }
+        await updateMeta(selected, next, selected.pinned ?? false);
     };
 
     const clearAll = async (): Promise<void> => {
@@ -188,6 +243,7 @@ export default function HistoryModal({
                         )}
                         <button
                             type="button"
+                            title="Close backup history"
                             onClick={onClose}
                             className={`${entries.length > 0 ? "" : "ml-auto"} rounded-lg p-1 text-faint transition-colors hover:bg-raised hover:text-primary`}
                         >
@@ -219,17 +275,40 @@ export default function HistoryModal({
                                         }`}
                                     >
                                         <span
-                                            className={`text-xs ${selected?.path === entry.path ? "font-medium text-primary" : "text-secondary"}`}
+                                            className={`flex w-full items-center gap-1.5 text-xs ${selected?.path === entry.path ? "font-medium text-primary" : "text-secondary"}`}
                                         >
-                                            {new Intl.DateTimeFormat(
-                                                undefined,
-                                                {
-                                                    dateStyle: "medium",
-                                                    timeStyle: "medium",
-                                                },
-                                            ).format(new Date(entry.mtime))}
+                                            <span className="truncate">
+                                                {entry.name ??
+                                                    new Intl.DateTimeFormat(
+                                                        undefined,
+                                                        {
+                                                            dateStyle: "medium",
+                                                            timeStyle: "medium",
+                                                        },
+                                                    ).format(
+                                                        new Date(entry.mtime),
+                                                    )}
+                                            </span>
+                                            {entry.pinned && (
+                                                <Star
+                                                    size={10}
+                                                    className="shrink-0 text-amber-500"
+                                                    fill="currentColor"
+                                                />
+                                            )}
                                         </span>
                                         <span className="text-[10px] text-faint">
+                                            {entry.name
+                                                ? `${new Intl.DateTimeFormat(
+                                                      undefined,
+                                                      {
+                                                          dateStyle: "medium",
+                                                          timeStyle: "short",
+                                                      },
+                                                  ).format(
+                                                      new Date(entry.mtime),
+                                                  )} · `
+                                                : ""}
                                             {fmtBytes(entry.size)}
                                         </span>
                                     </button>
@@ -253,6 +332,62 @@ export default function HistoryModal({
                                 </div>
                             ) : (
                                 <>
+                                    {supportsMeta && (
+                                        <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
+                                            <input
+                                                value={nameDraft}
+                                                onChange={(event) =>
+                                                    setNameDraft(
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                onBlur={() => void saveName()}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === "Enter") {
+                                                        event.currentTarget.blur();
+                                                    }
+                                                }}
+                                                placeholder="Name this snapshot"
+                                                spellCheck={false}
+                                                className="w-44 rounded-lg border border-line bg-app px-2 py-1 text-xs text-primary outline-none placeholder:text-faint focus:border-accent"
+                                            />
+                                            <button
+                                                type="button"
+                                                title={
+                                                    selected.pinned
+                                                        ? "Unpin snapshot"
+                                                        : "Pin snapshot"
+                                                }
+                                                onClick={() =>
+                                                    void updateMeta(
+                                                        selected,
+                                                        nameDraft.trim() ||
+                                                            selected.name ||
+                                                            null,
+                                                        !selected.pinned,
+                                                    )
+                                                }
+                                                className={`rounded-lg p-1.5 transition-colors hover:bg-raised ${
+                                                    selected.pinned
+                                                        ? "text-amber-500"
+                                                        : "text-faint hover:text-primary"
+                                                }`}
+                                            >
+                                                <Star
+                                                    size={14}
+                                                    fill={
+                                                        selected.pinned
+                                                            ? "currentColor"
+                                                            : "none"
+                                                    }
+                                                />
+                                            </button>
+                                            <span className="text-[10px] text-faint">
+                                                Pinned snapshots skip automatic
+                                                pruning.
+                                            </span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center gap-2 border-b border-line px-4 py-2">
                                         <span className="text-[11px] text-faint">
                                             diff vs next version{" "}

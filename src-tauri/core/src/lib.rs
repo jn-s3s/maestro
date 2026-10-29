@@ -3,13 +3,19 @@
 
 pub mod crypto;
 pub mod detection;
+pub mod drafts;
 pub mod files;
 pub mod history;
 pub mod names;
 pub mod paths;
+pub mod schema;
+pub mod search;
 pub mod settings;
 pub mod validation;
 pub mod watch;
+
+/// Largest configuration file Maestro opens, edits or stores in a draft.
+pub const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
 
 pub(crate) fn hex_lower(bytes: &[u8]) -> String {
     use std::fmt::Write as _;

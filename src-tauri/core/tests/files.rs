@@ -638,3 +638,42 @@ fn protects_registered_roots_and_tracked_files_from_rename_and_delete() {
         Err(FileError::RootFile)
     ));
 }
+
+#[test]
+fn renaming_a_managed_file_moves_its_history() {
+    let synthetic = Synthetic::new();
+    let folder = synthetic.root().join("tracked");
+    fs::create_dir_all(&folder).unwrap();
+    let store = synthetic.store(&[custom("tracked", &folder)]);
+    let file = store.create_file_in(&folder, "notes.json").unwrap();
+    let empty = store.read_file(&file).unwrap();
+    let first = store
+        .write_file(
+            &file,
+            WriteRequest {
+                content: "{\"v\":1}",
+                expected_revision: empty.revision.as_ref().map(|rev| rev.as_str()),
+            },
+        )
+        .unwrap();
+    store
+        .write_file(
+            &file,
+            WriteRequest {
+                content: "{\"v\":2}",
+                expected_revision: Some(first.revision.as_str()),
+            },
+        )
+        .unwrap();
+    let history = store.history();
+    assert_eq!(history.list(&file).unwrap().len(), 1);
+
+    let renamed = store.rename_file(&file, "renamed.json").unwrap();
+    assert!(history.list(&file).unwrap().is_empty());
+    let entries = history.list(&renamed).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        history.read_path(&entries[0].path).unwrap(),
+        "{\"v\":1}"
+    );
+}

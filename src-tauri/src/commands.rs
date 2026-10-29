@@ -5,10 +5,16 @@ use std::path::{Path, PathBuf};
 
 use maestro_core::{
     detection::{CustomEntry, Tool},
+    drafts::Draft,
     files::{DirEntry, FileStat, WriteRequest},
     history::HistoryEntry,
     paths::{canonical_or_lexical, lexical_normalize, path_key},
-    settings::{AppSettings, ThemeMode, push_recent as push_recent_entry},
+    schema::{self, AdviceWarning, SchemaInfo},
+    search::{self, SearchHit},
+    settings::{
+        AppSettings, MAX_HISTORY_LIMIT, MIN_HISTORY_LIMIT, ThemeMode, Workspace,
+        push_recent as push_recent_entry,
+    },
     watch::{WatchMode, watch_path},
 };
 use serde::Serialize;
@@ -16,7 +22,7 @@ use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
 use crate::{
     shell,
-    state::{AppState, new_custom_id},
+    state::{AppState, new_custom_id, new_workspace_id},
     tray,
 };
 
@@ -70,6 +76,35 @@ pub struct BackupDto {
     path: String,
     mtime: i64,
     size: u64,
+    name: Option<String>,
+    pinned: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHitDto {
+    path: String,
+    label: String,
+    line: u32,
+    preview: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchDto {
+    hits: Vec<SearchHitDto>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdviceDto {
+    warnings: Vec<AdviceWarning>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftsDto {
+    drafts: Vec<Draft>,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,6 +171,19 @@ impl From<HistoryEntry> for BackupDto {
             path: text(&entry.path),
             mtime: entry.mtime_ms,
             size: entry.size,
+            name: entry.name,
+            pinned: entry.pinned,
+        }
+    }
+}
+
+impl From<SearchHit> for SearchHitDto {
+    fn from(hit: SearchHit) -> Self {
+        Self {
+            path: text(&hit.path),
+            label: hit.label,
+            line: hit.line,
+            preview: hit.preview,
         }
     }
 }
@@ -316,7 +364,7 @@ pub fn add_custom(state: State<'_, AppState>, name: String, path: String) -> OpR
     }
 }
 
-fn add_custom_inner(state: &AppState, name: &str, raw_path: &str) -> Result<(), String> {
+fn validate_display_name(name: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("Name is required".to_owned());
@@ -327,6 +375,11 @@ fn add_custom_inner(state: &AppState, name: &str, raw_path: &str) -> Result<(), 
     if name.chars().any(char::is_control) {
         return Err("Name cannot contain control characters".to_owned());
     }
+    Ok(name.to_owned())
+}
+
+fn add_custom_inner(state: &AppState, name: &str, raw_path: &str) -> Result<(), String> {
+    let name = validate_display_name(name)?;
     let raw_path = raw_path.trim();
     if raw_path.is_empty() {
         return Err("Path is required".to_owned());
@@ -358,12 +411,197 @@ fn add_custom_inner(state: &AppState, name: &str, raw_path: &str) -> Result<(), 
     let mut settings = inner.settings.clone();
     settings.custom.push(CustomEntry {
         id: new_custom_id(&settings.custom),
-        name: name.to_owned(),
+        name,
         path: candidate,
     });
     state.save_settings(&mut inner, settings)?;
     state.refresh_tools(&mut inner);
     Ok(())
+}
+
+#[tauri::command]
+pub fn add_workspace(state: State<'_, AppState>, name: String, path: String) -> OpResult {
+    match add_workspace_inner(&state, &name, &path) {
+        Ok(()) => OpResult::ok(),
+        Err(error) => OpResult::error(error),
+    }
+}
+
+fn add_workspace_inner(state: &AppState, name: &str, raw_path: &str) -> Result<(), String> {
+    let name = validate_display_name(name)?;
+    let raw_path = raw_path.trim();
+    if raw_path.is_empty() {
+        return Err("Folder path is required".to_owned());
+    }
+    let candidate = lexical_normalize(Path::new(raw_path));
+    if !candidate.is_absolute() {
+        return Err("Folder path must be absolute (e.g. C:\\Users\\...)".to_owned());
+    }
+    let metadata = std::fs::symlink_metadata(&candidate)
+        .map_err(|_| "Workspace folder does not exist".to_owned())?;
+    if !metadata.is_dir() {
+        return Err("Workspace path must be a folder".to_owned());
+    }
+    let key = tool_key(&candidate);
+    let mut inner = state.lock_inner();
+    if inner
+        .settings
+        .workspaces
+        .iter()
+        .any(|entry| tool_key(&entry.path) == key)
+        || inner
+            .settings
+            .custom
+            .iter()
+            .any(|entry| tool_key(&entry.path) == key)
+    {
+        return Err("This folder is already registered".to_owned());
+    }
+    let mut settings = inner.settings.clone();
+    settings.workspaces.push(Workspace {
+        id: new_workspace_id(&settings.workspaces),
+        name,
+        path: candidate,
+    });
+    state.save_settings(&mut inner, settings)?;
+    state.refresh_tools(&mut inner);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_workspace(state: State<'_, AppState>, id: String) -> Result<AppSettings, String> {
+    let mut inner = state.lock_inner();
+    let mut settings = inner.settings.clone();
+    settings.workspaces.retain(|entry| entry.id != id);
+    settings.hidden_tools.retain(|hidden| hidden != &id);
+    let saved = state.save_settings(&mut inner, settings)?;
+    state.refresh_tools(&mut inner);
+    Ok(saved)
+}
+
+#[tauri::command]
+pub fn set_history_limit(state: State<'_, AppState>, limit: usize) -> Result<AppSettings, String> {
+    if !(MIN_HISTORY_LIMIT..=MAX_HISTORY_LIMIT).contains(&limit) {
+        return Err(format!(
+            "History limit must be between {MIN_HISTORY_LIMIT} and {MAX_HISTORY_LIMIT}"
+        ));
+    }
+    let mut inner = state.lock_inner();
+    let mut settings = inner.settings.clone();
+    settings.history_limit = limit;
+    let saved = state.save_settings(&mut inner, settings)?;
+    state.refresh_tools(&mut inner);
+    Ok(saved)
+}
+
+#[tauri::command]
+pub fn search_files(state: State<'_, AppState>, query: String, limit: Option<usize>) -> SearchDto {
+    let inner = state.lock_inner();
+    let hidden = inner
+        .settings
+        .hidden_tools
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::HashSet<_>>();
+    let hidden_paths = inner
+        .tools
+        .iter()
+        .filter(|tool| hidden.contains(tool.id.as_str()))
+        .flat_map(|tool| tool.files.iter())
+        .map(|file| tool_key(&file.path))
+        .collect::<std::collections::HashSet<_>>();
+    let hits =
+        search::search_files_excluding(&inner.files, &query, limit.unwrap_or(60), &hidden_paths);
+    SearchDto {
+        hits: hits.into_iter().map(SearchHitDto::from).collect(),
+    }
+}
+
+#[tauri::command]
+pub fn set_snapshot_meta(
+    state: State<'_, AppState>,
+    backup_path: String,
+    name: Option<String>,
+    pinned: bool,
+) -> Result<OpResult, String> {
+    let inner = state.lock_inner();
+    inner
+        .files
+        .history()
+        .set_meta(Path::new(&backup_path), name.as_deref(), pinned)
+        .map(|()| OpResult::ok())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_schema(state: State<'_, AppState>, path: String) -> Result<Option<SchemaInfo>, String> {
+    let inner = state.lock_inner();
+    inner
+        .files
+        .registry()
+        .resolve_file(Path::new(&path))
+        .map_err(|error| error.to_string())?;
+    Ok(schema::schema_for(Path::new(&path)))
+}
+
+#[tauri::command]
+pub fn check_config(
+    state: State<'_, AppState>,
+    path: String,
+    content: String,
+) -> Result<AdviceDto, String> {
+    if content.len() as u64 > maestro_core::MAX_FILE_BYTES {
+        return Err("Content is larger than 5 MB".to_owned());
+    }
+    let inner = state.lock_inner();
+    inner
+        .files
+        .registry()
+        .resolve_file(Path::new(&path))
+        .map_err(|error| error.to_string())?;
+    Ok(AdviceDto {
+        warnings: schema::warnings(Path::new(&path), &content),
+    })
+}
+
+#[tauri::command]
+pub fn save_draft(
+    state: State<'_, AppState>,
+    path: String,
+    content: String,
+    base_revision: Option<String>,
+) -> Result<OpResult, String> {
+    {
+        let inner = state.lock_inner();
+        inner
+            .files
+            .registry()
+            .resolve_file(Path::new(&path))
+            .map_err(|error| error.to_string())?;
+    }
+    state
+        .drafts
+        .save(Path::new(&path), &content, base_revision.as_deref())
+        .map(|_| OpResult::ok())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_drafts(state: State<'_, AppState>) -> Result<DraftsDto, String> {
+    state
+        .drafts
+        .list()
+        .map(|drafts| DraftsDto { drafts })
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_draft(state: State<'_, AppState>, path: String) -> Result<OpResult, String> {
+    state
+        .drafts
+        .delete(Path::new(&path))
+        .map(|()| OpResult::ok())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

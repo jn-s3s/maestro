@@ -1,13 +1,14 @@
 //! Encrypted per-file snapshot history.
 
 use std::{
+    collections::BTreeMap,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
 };
 
 use chrono::Local;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use thiserror::Error;
 
@@ -20,7 +21,9 @@ use crate::{
 
 pub const DEFAULT_RETENTION: usize = 20;
 pub const MAX_SNAPSHOT_PLAINTEXT_BYTES: u64 = 5 * 1024 * 1024;
+pub const MAX_SNAPSHOT_NAME_CHARS: usize = 80;
 const SNAPSHOT_OVERHEAD_BYTES: u64 = 2 + 12 + 16;
+const META_FILE: &str = "_meta.json";
 pub const MAX_SNAPSHOT_BYTES: u64 = crypto::SNAPSHOT_PREFIX.len() as u64
     + (MAX_SNAPSHOT_PLAINTEXT_BYTES + SNAPSHOT_OVERHEAD_BYTES).div_ceil(3) * 4;
 
@@ -31,6 +34,26 @@ pub struct HistoryEntry {
     pub path: PathBuf,
     pub mtime_ms: i64,
     pub size: u64,
+    pub name: Option<String>,
+    pub pinned: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+struct EntryMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pinned: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct MetaIndex {
+    #[serde(default)]
+    entries: BTreeMap<String, EntryMeta>,
 }
 
 #[derive(Debug, Error)]
@@ -43,6 +66,8 @@ pub enum HistoryError {
     TooLarge,
     #[error("retention must be at least one entry")]
     InvalidRetention,
+    #[error("snapshot name must be 80 characters or fewer without control characters")]
+    InvalidSnapshotName,
     #[error("snapshot could not be protected: {0}")]
     Crypto(#[from] CryptoError),
     #[error("failed to {operation} {path}: {source}")]
@@ -133,7 +158,7 @@ impl HistoryStore {
         })?;
 
         let names = self.entry_names(&dir)?;
-        if let Some(latest) = names.last() {
+        if let Some(latest) = names.iter().rev().find(|name| !is_meta_file(name)) {
             if self
                 .read_entry(&dir, latest)
                 .is_ok_and(|previous| previous == content)
@@ -196,8 +221,12 @@ impl HistoryStore {
     /// @returns The existing snapshot entries.
     pub fn list(&self, file_path: &Path) -> Result<Vec<HistoryEntry>, HistoryError> {
         let dir = self.resolve_history_dir(&self.backup_dir(file_path))?;
+        let meta = read_meta_index(&dir);
         let mut entries = Vec::new();
         for name in self.entry_names(&dir)? {
+            if is_meta_file(&name) {
+                continue;
+            }
             let path = dir.join(&name);
             let Ok(metadata) = fs::symlink_metadata(&path) else {
                 continue;
@@ -205,19 +234,154 @@ impl HistoryStore {
             if !metadata.file_type().is_file() {
                 continue;
             }
+            let entry_meta = meta.entries.get(&name).cloned().unwrap_or_default();
             entries.push(HistoryEntry {
                 file: name,
                 path,
                 mtime_ms: mtime_ms(&metadata),
                 size: metadata.len(),
+                name: entry_meta.name,
+                pinned: entry_meta.pinned,
             });
         }
         entries.sort_by(|a, b| {
-            b.mtime_ms
-                .cmp(&a.mtime_ms)
+            b.pinned
+                .cmp(&a.pinned)
+                .then_with(|| b.mtime_ms.cmp(&a.mtime_ms))
                 .then_with(|| b.file.cmp(&a.file))
         });
         Ok(entries)
+    }
+
+    /// Updates the optional display name and pin state of one snapshot.
+    ///
+    /// Pinned snapshots are exempt from automatic retention pruning.
+    ///
+    /// @param backup_path - Absolute snapshot path returned by
+    /// [`HistoryStore::list`].
+    /// @param name - Display name, or `None` to clear it.
+    /// @param pinned - Whether retention should keep the snapshot.
+    /// @throws When the path or name is invalid or the metadata cannot be
+    /// written.
+    pub fn set_meta(
+        &self,
+        backup_path: &Path,
+        name: Option<&str>,
+        pinned: bool,
+    ) -> Result<(), HistoryError> {
+        let (dir, file_name) = self.resolve_entry_path(backup_path)?;
+        let name = validate_snapshot_name(name)?;
+        let mut index = read_meta_index(&dir);
+        if name.is_none() && !pinned {
+            index.entries.remove(&file_name);
+        } else {
+            index.entries.insert(file_name, EntryMeta { name, pinned });
+        }
+        write_meta_index(&dir, &index)
+    }
+
+    /// Moves the history of a renamed file to its new per-file directory.
+    ///
+    /// Existing target history is merged without overwriting snapshots.
+    ///
+    /// @param old_file - The source file path before the rename.
+    /// @param new_file - The source file path after the rename.
+    /// @throws When the existing history folder cannot be moved.
+    pub fn rename_history(&self, old_file: &Path, new_file: &Path) -> Result<(), HistoryError> {
+        let old_dir = self.backup_dir(old_file);
+        let new_dir = self.backup_dir(new_file);
+        let metadata = match fs::symlink_metadata(&old_dir) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => {
+                return Err(HistoryError::Io {
+                    operation: "inspect history folder",
+                    path: old_dir,
+                    source,
+                });
+            }
+        };
+        if crate::paths::metadata_is_link(&metadata) || !metadata.is_dir() {
+            return Err(HistoryError::InvalidEntryName);
+        }
+        match fs::symlink_metadata(&new_dir) {
+            Ok(metadata) if metadata_is_link(&metadata) || !metadata.is_dir() => {
+                return Err(HistoryError::InvalidEntryName);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if let Some(parent) = new_dir.parent() {
+                    fs::create_dir_all(parent).map_err(|source| HistoryError::Io {
+                        operation: "create history root",
+                        path: parent.to_path_buf(),
+                        source,
+                    })?;
+                }
+                return fs::rename(&old_dir, &new_dir).map_err(|source| HistoryError::Io {
+                    operation: "move history folder",
+                    path: old_dir,
+                    source,
+                });
+            }
+            Err(source) => {
+                return Err(HistoryError::Io {
+                    operation: "inspect destination history folder",
+                    path: new_dir,
+                    source,
+                });
+            }
+        }
+
+        let mut destination_meta = read_meta_index(&new_dir);
+        let source_meta = read_meta_index(&old_dir);
+        let entries = fs::read_dir(&old_dir).map_err(|source| HistoryError::Io {
+            operation: "list source history folder",
+            path: old_dir.clone(),
+            source,
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|source| HistoryError::Io {
+                operation: "read source history entry",
+                path: old_dir.clone(),
+                source,
+            })?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if is_meta_file(&name) {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(entry.path()).map_err(|source| {
+                HistoryError::Io {
+                    operation: "inspect source history entry",
+                    path: entry.path(),
+                    source,
+                }
+            })?;
+            if metadata_is_link(&metadata) || !metadata.file_type().is_file() {
+                return Err(HistoryError::InvalidEntryName);
+            }
+            let mut target_name = name.clone();
+            let mut attempt = 1usize;
+            while new_dir.join(&target_name).exists() {
+                target_name = format!("renamed-{attempt}-{name}");
+                attempt += 1;
+            }
+            fs::rename(entry.path(), new_dir.join(&target_name)).map_err(|source| {
+                HistoryError::Io {
+                    operation: "merge history entry",
+                    path: entry.path(),
+                    source,
+                }
+            })?;
+            if let Some(meta) = source_meta.entries.get(&name) {
+                destination_meta.entries.insert(target_name, meta.clone());
+            }
+        }
+        write_meta_index(&new_dir, &destination_meta)?;
+        fs::remove_dir_all(&old_dir).map_err(|source| HistoryError::Io {
+            operation: "remove merged history folder",
+            path: old_dir,
+            source,
+        })
     }
 
     /// Reads and decrypts one snapshot by entry name.
@@ -254,7 +418,10 @@ impl HistoryStore {
         let dir = self.resolve_history_dir(&self.backup_dir(file_path))?;
         let path = dir.join(name);
         match fs::remove_file(&path) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                remove_meta_entry(&dir, name);
+                Ok(())
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(source) => Err(HistoryError::Io {
                 operation: "delete snapshot",
@@ -275,8 +442,11 @@ impl HistoryStore {
             Err(HistoryError::NotFound) => return Ok(()),
             Err(error) => return Err(error),
         };
-        match fs::remove_file(dir.join(name)) {
-            Ok(()) => Ok(()),
+        match fs::remove_file(dir.join(&name)) {
+            Ok(()) => {
+                remove_meta_entry(&dir, &name);
+                Ok(())
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(source) => Err(HistoryError::Io {
                 operation: "delete snapshot",
@@ -451,14 +621,38 @@ impl HistoryStore {
     }
 
     fn prune(&self, dir: &Path) {
-        let Ok(mut names) = self.entry_names(dir) else {
+        let Ok(names) = self.entry_names(dir) else {
             return;
         };
-        while names.len() > self.retention {
-            let oldest = names.remove(0);
-            if fs::remove_file(dir.join(oldest)).is_err() {
+        let meta = read_meta_index(dir);
+        let mut excess = names
+            .iter()
+            .filter(|name| {
+                !is_meta_file(name)
+                    && !meta
+                        .entries
+                        .get(name.as_str())
+                        .is_some_and(|entry| entry.pinned)
+            })
+            .count()
+            .saturating_sub(self.retention);
+        for name in names {
+            if excess == 0 {
+                break;
+            }
+            if is_meta_file(&name)
+                || meta
+                    .entries
+                    .get(&name)
+                    .is_some_and(|entry| entry.pinned)
+            {
+                continue;
+            }
+            if fs::remove_file(dir.join(&name)).is_err() {
                 return;
             }
+            remove_meta_entry(dir, &name);
+            excess -= 1;
         }
     }
 }
@@ -468,7 +662,11 @@ fn create_new_file(path: &Path) -> io::Result<File> {
 }
 
 fn validate_entry_name(name: &str) -> Result<&str, HistoryError> {
-    if name.is_empty() || name.contains(':') || name.contains('\0') || is_reserved_device_name(name)
+    if name.is_empty()
+        || name == META_FILE
+        || name.contains(':')
+        || name.contains('\0')
+        || is_reserved_device_name(name)
     {
         return Err(HistoryError::InvalidEntryName);
     }
@@ -476,6 +674,96 @@ fn validate_entry_name(name: &str) -> Result<&str, HistoryError> {
     match (components.next(), components.next()) {
         (Some(Component::Normal(part)), None) if !part.is_empty() => Ok(name),
         _ => Err(HistoryError::InvalidEntryName),
+    }
+}
+
+fn is_meta_file(name: &str) -> bool {
+    name == META_FILE || name.starts_with("_meta.json.")
+}
+
+fn validate_snapshot_name(name: Option<&str>) -> Result<Option<String>, HistoryError> {
+    let Some(name) = name else {
+        return Ok(None);
+    };
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > MAX_SNAPSHOT_NAME_CHARS || trimmed.chars().any(char::is_control)
+    {
+        return Err(HistoryError::InvalidSnapshotName);
+    }
+    Ok(Some(trimmed.to_owned()))
+}
+
+fn read_meta_index(dir: &Path) -> MetaIndex {
+    fs::read_to_string(dir.join(META_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn write_meta_index(dir: &Path, index: &MetaIndex) -> Result<(), HistoryError> {
+    let path = dir.join(META_FILE);
+    if index.entries.is_empty() {
+        match fs::remove_file(&path) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => {
+                return Err(HistoryError::Io {
+                    operation: "remove snapshot metadata",
+                    path,
+                    source,
+                });
+            }
+        }
+    }
+    let text = serde_json::to_string(index).expect("snapshot metadata always serializes");
+    let mut random = [0u8; 8];
+    getrandom::fill(&mut random).map_err(|error| HistoryError::Io {
+        operation: "generate snapshot metadata filename in",
+        path: dir.to_path_buf(),
+        source: io::Error::other(error.to_string()),
+    })?;
+    let temp = dir.join(format!("{META_FILE}.tmp-{}", hex_lower(&random)));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temp).map_err(|source| HistoryError::Io {
+        operation: "create snapshot metadata temporary file",
+        path: temp.clone(),
+        source,
+    })?;
+    let write_result = file
+        .write_all(text.as_bytes())
+        .and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(source) = write_result {
+        let _ = fs::remove_file(&temp);
+        return Err(HistoryError::Io {
+            operation: "write snapshot metadata",
+            path: path.clone(),
+            source,
+        });
+    }
+    fs::rename(&temp, &path).map_err(|source| {
+        let _ = fs::remove_file(&temp);
+        HistoryError::Io {
+            operation: "replace snapshot metadata",
+            path: path.clone(),
+            source,
+        }
+    })
+}
+
+fn remove_meta_entry(dir: &Path, file_name: &str) {
+    let mut index = read_meta_index(dir);
+    if index.entries.remove(file_name).is_some() {
+        let _ = write_meta_index(dir, &index);
     }
 }
 
@@ -752,6 +1040,122 @@ mod tests {
             other.read(&file, &name),
             Err(HistoryError::Crypto(CryptoError::Authentication))
         ));
+    }
+
+    #[test]
+    fn stores_names_and_pins_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let history = store(temp.path(), 20);
+        let file = temp.path().join("settings.json");
+        history.snapshot(&file, "one").unwrap();
+        let entry = history.list(&file).unwrap().remove(0);
+        assert_eq!(entry.name, None);
+        assert!(!entry.pinned);
+
+        history
+            .set_meta(&entry.path, Some("  Before upgrade  "), true)
+            .unwrap();
+        let entry = history.list(&file).unwrap().remove(0);
+        assert_eq!(entry.name.as_deref(), Some("Before upgrade"));
+        assert!(entry.pinned);
+
+        history.set_meta(&entry.path, None, false).unwrap();
+        let entry = history.list(&file).unwrap().remove(0);
+        assert_eq!(entry.name, None);
+        assert!(!entry.pinned);
+        assert!(!history.backup_dir(&file).join(META_FILE).exists());
+
+        for invalid in ["x".repeat(MAX_SNAPSHOT_NAME_CHARS + 1), "bad\nname".into()] {
+            assert!(matches!(
+                history.set_meta(&entry.path, Some(&invalid), false),
+                Err(HistoryError::InvalidSnapshotName)
+            ));
+        }
+    }
+
+    #[test]
+    fn metadata_write_does_not_follow_predictable_temporary_links() {
+        let temp = tempfile::tempdir().unwrap();
+        let history = store(temp.path(), 20);
+        let file = temp.path().join("settings.json");
+        history.snapshot(&file, "snapshot").unwrap();
+        let entry = history.list(&file).unwrap().remove(0);
+        let linked_target = temp.path().join("outside.txt");
+        fs::write(&linked_target, "preserve me").unwrap();
+        fs::hard_link(
+            &linked_target,
+            history.backup_dir(&file).join(format!("{META_FILE}.tmp")),
+        )
+        .unwrap();
+
+        history
+            .set_meta(&entry.path, Some("Named snapshot"), false)
+            .unwrap();
+
+        assert_eq!(fs::read_to_string(linked_target).unwrap(), "preserve me");
+    }
+
+    #[test]
+    fn metadata_does_not_defeat_snapshot_deduplication() {
+        let temp = tempfile::tempdir().unwrap();
+        let history = store(temp.path(), 20);
+        let file = temp.path().join("settings.json");
+        history.snapshot(&file, "one").unwrap();
+        let entry = history.list(&file).unwrap().remove(0);
+        history.set_meta(&entry.path, Some("named"), true).unwrap();
+        assert!(history.snapshot(&file, "one").unwrap().is_none());
+        assert_eq!(history.list(&file).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn pinned_snapshots_survive_retention_pruning() {
+        let temp = tempfile::tempdir().unwrap();
+        let history = store(temp.path(), 2);
+        let file = temp.path().join("settings.json");
+        history.snapshot(&file, "keep").unwrap();
+        let pinned = history.list(&file).unwrap().remove(0);
+        history.set_meta(&pinned.path, Some("pinned"), true).unwrap();
+        for index in 0..4 {
+            history.snapshot(&file, &format!("value-{index}")).unwrap();
+        }
+        let entries = history.list(&file).unwrap();
+        assert_eq!(entries.len(), 3, "two retained snapshots plus the pin");
+        assert!(entries[0].pinned);
+        assert!(entries.iter().any(|entry| entry.file == pinned.file));
+    }
+
+    #[test]
+    fn moves_history_to_the_renamed_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let history = store(temp.path(), 20);
+        let before = temp.path().join("before.json");
+        let after = temp.path().join("after.json");
+        history.snapshot(&before, "one").unwrap();
+        history.rename_history(&before, &after).unwrap();
+        assert!(history.list(&before).unwrap().is_empty());
+        assert_eq!(history.list(&after).unwrap().len(), 1);
+        history.rename_history(&before, &after).unwrap();
+    }
+
+    #[test]
+    fn merges_history_when_the_renamed_path_already_has_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let history = store(temp.path(), 20);
+        let before = temp.path().join("before.json");
+        let after = temp.path().join("after.json");
+        history.snapshot(&before, "source snapshot").unwrap();
+        history.snapshot(&after, "destination snapshot").unwrap();
+        let source = history.list(&before).unwrap().remove(0);
+        history.set_meta(&source.path, Some("Source"), true).unwrap();
+
+        history.rename_history(&before, &after).unwrap();
+
+        let entries = history.list(&after).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|entry| {
+            entry.name.as_deref() == Some("Source") && entry.pinned
+        }));
+        assert!(history.list(&before).unwrap().is_empty());
     }
 
     #[test]

@@ -1,28 +1,103 @@
 import { memo, useState, type JSX } from "react";
 import {
+    BookOpen,
     ChevronDown,
     ChevronLeft,
     ChevronRight,
     Folder,
     Lock,
+    Plug,
+    Search,
     Settings2,
+    SlidersHorizontal,
+    Star,
 } from "lucide-react";
 import type {
+    DiscoveryState,
     Tool,
     ToolFile,
     ToolFolder,
     ToolGroup,
     ToolRoot,
 } from "../../../shared/types";
+import { filterToolForView, viewEntryCount, type NavView } from "../lib/views";
 
 const GROUP_LABELS: Record<ToolGroup, string> = {
+    workspace: "Workspaces",
     cli: "CLI Tools",
     editor: "Editors",
     ext: "VS Code Extensions",
     custom: "Custom",
 };
 
-const ORDER: ToolGroup[] = ["cli", "editor", "ext", "custom"];
+const ORDER: ToolGroup[] = ["workspace", "cli", "editor", "ext", "custom"];
+
+const STATE_LABELS: Record<DiscoveryState, string> = {
+    available: "Available",
+    missing: "Missing",
+    unreadable: "Unreadable. Access is denied.",
+    unsupported: "Unsupported. It is a link, a folder or larger than 5 MB.",
+};
+
+const STATE_DOT: Record<DiscoveryState, string> = {
+    available: "bg-emerald-500",
+    missing: "bg-line2",
+    unreadable: "bg-amber-500",
+    unsupported: "bg-violet-400",
+};
+
+function fileState(file: ToolFile): DiscoveryState {
+    return file.state ?? (file.exists ? "available" : "missing");
+}
+
+const VIEW_BUTTONS = [
+    { id: "configs", label: "Configs", icon: SlidersHorizontal },
+    { id: "mcp", label: "MCP", icon: Plug },
+    { id: "library", label: "Library", icon: BookOpen },
+] satisfies { id: NavView; label: string; icon: typeof Plug }[];
+
+const VIEW_TITLES: Record<NavView, string> = {
+    configs: "Configurations",
+    mcp: "MCP servers",
+    library: "Library",
+};
+
+interface FavoriteEntry {
+    tool: Tool;
+    file: ToolFile;
+}
+
+/**
+ * Filters a tool to the entries matching a query.
+ *
+ * @param tool - The tool to filter.
+ * @param needle - A lower-cased search string, or an empty string.
+ * @returns The original tool, a filtered copy, or null when nothing matches.
+ */
+function filterTool(tool: Tool, needle: string): Tool | null {
+    if (!needle) {
+        return tool;
+    }
+    if (tool.name.toLowerCase().includes(needle)) {
+        return tool;
+    }
+    const files = tool.files.filter(
+        (file) =>
+            file.label.toLowerCase().includes(needle) ||
+            file.path.toLowerCase().includes(needle),
+    );
+    const folders = (tool.folders ?? []).filter(
+        (folder) =>
+            folder.label.toLowerCase().includes(needle) ||
+            folder.path.toLowerCase().includes(needle),
+    );
+    if (files.length === 0 && folders.length === 0) {
+        return null;
+    }
+    // Roots drive section ordering, so drop them while filtering; the
+    // remaining entries still carry their section names.
+    return { ...tool, files, folders, roots: [] };
+}
 
 interface RowProps {
     file: ToolFile;
@@ -35,9 +110,11 @@ const FileRow = memo(function FileRow({
     active,
     onClick,
 }: RowProps): JSX.Element {
+    const state = fileState(file);
     return (
         <button
             type="button"
+            data-file-state={state}
             onClick={onClick}
             className={`flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors ${
                 active
@@ -46,7 +123,8 @@ const FileRow = memo(function FileRow({
             }`}
         >
             <span
-                className={`size-1.5 shrink-0 ${file.exists ? "bg-emerald-500" : "bg-line2"}`}
+                title={STATE_LABELS[state]}
+                className={`size-1.5 shrink-0 ${STATE_DOT[state]}`}
             />
             <span
                 className={`truncate text-xs ${active ? "font-medium text-primary" : "text-secondary"}`}
@@ -242,7 +320,7 @@ const ToolBlock = memo(function ToolBlock({
     const allFolders = sections.flatMap((section) => section.folders);
     const hasItems = sections.length > 0;
     const existing =
-        allFiles.filter((file) => file.exists).length +
+        allFiles.filter((file) => fileState(file) === "available").length +
         allFolders.filter((folder) => folder.exists).length;
     const total = allFiles.length + allFolders.length;
     return (
@@ -322,6 +400,7 @@ const ToolBlock = memo(function ToolBlock({
 
 interface Props {
     tools: Tool[];
+    favorites: FavoriteEntry[];
     selectedId: string | null;
     selectedFolderId: string | null;
     onSelect: (tool: Tool, file: ToolFile) => void;
@@ -329,6 +408,10 @@ interface Props {
     onManage: () => void;
     collapsed: boolean;
     onToggle: () => void;
+    filter: string;
+    onFilterChange: (value: string) => void;
+    view: NavView;
+    onViewChange: (view: NavView) => void;
 }
 
 /**
@@ -342,9 +425,12 @@ interface Props {
  * @param onManage - Opens the settings modal.
  * @param collapsed - Whether the whole sidebar is collapsed to a thin rail.
  * @param onToggle - Flips the whole-sidebar collapsed state.
+ * @param view - The active navigation collection.
+ * @param onViewChange - Switches the navigation collection.
  */
 export default function Sidebar({
     tools,
+    favorites,
     selectedId,
     selectedFolderId,
     onSelect,
@@ -352,15 +438,37 @@ export default function Sidebar({
     onManage,
     collapsed,
     onToggle,
+    filter,
+    onFilterChange,
+    view,
+    onViewChange,
 }: Props): JSX.Element {
     const [groupCollapsed, setGroupCollapsed] = useState<
         Record<string, boolean>
     >({});
+    const needle = filter.trim().toLowerCase();
 
+    const viewTools = tools
+        .map((tool) => filterToolForView(tool, view))
+        .filter((tool): tool is Tool => tool !== null);
     const groups = ORDER.map((group) => ({
         group,
-        items: tools.filter((tool) => tool.group === group),
+        items: viewTools
+            .filter((tool) => tool.group === group)
+            .map((tool) => filterTool(tool, needle))
+            .filter((tool): tool is Tool => tool !== null),
     })).filter(({ items }) => items.length);
+    const visibleFavorites =
+        view === "configs"
+            ? favorites.filter(
+                  ({ tool, file }) =>
+                      !needle ||
+                      file.label.toLowerCase().includes(needle) ||
+                      file.path.toLowerCase().includes(needle) ||
+                      tool.name.toLowerCase().includes(needle),
+              )
+            : [];
+    const entryCount = viewEntryCount(tools, view);
 
     const toggle = (key: string): void =>
         setGroupCollapsed((current) => ({
@@ -387,27 +495,104 @@ export default function Sidebar({
 
     return (
         <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-surface/50">
-            <div className="flex items-center justify-between border-b border-line px-4 py-3">
-                <p className="text-[11px] text-faint">
-                    {tools.length} tools · folders & files detected
-                </p>
-                <button
-                    type="button"
-                    title="Collapse sidebar"
-                    aria-label="Collapse sidebar"
-                    aria-expanded={!collapsed}
-                    onClick={onToggle}
-                    className="p-1 text-faint transition-colors hover:bg-raised hover:text-primary"
+            <div className="border-b border-line px-2 py-2">
+                <div
+                    role="tablist"
+                    aria-label="Navigation"
+                    className="flex items-center gap-0.5 rounded-lg border border-line bg-app p-0.5"
                 >
-                    <ChevronLeft size={14} />
-                </button>
+                    {VIEW_BUTTONS.map(({ id, label, icon: Icon }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            role="tab"
+                            aria-selected={view === id}
+                            title={`Show ${VIEW_TITLES[id].toLowerCase()}`}
+                            onClick={() => onViewChange(id)}
+                            className={`flex flex-1 items-center justify-center gap-1 rounded-md px-1 py-1 text-[10px] font-medium transition-colors ${
+                                view === id
+                                    ? "bg-raised text-primary"
+                                    : "text-faint hover:text-secondary"
+                            }`}
+                        >
+                            <Icon size={11} />
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <div className="border-b border-line px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-medium text-secondary">
+                        {VIEW_TITLES[view]}
+                    </p>
+                    <span className="text-[10px] text-faint">
+                        {entryCount} {view === "configs" ? "tools" : "entries"}
+                    </span>
+                    <button
+                        type="button"
+                        title="Collapse sidebar"
+                        aria-label="Collapse sidebar"
+                        aria-expanded={!collapsed}
+                        onClick={onToggle}
+                        className="ml-auto p-1 text-faint transition-colors hover:bg-raised hover:text-primary"
+                    >
+                        <ChevronLeft size={14} />
+                    </button>
+                </div>
+                <label className="mt-2 flex items-center gap-1.5 rounded-lg border border-line bg-app px-2 py-1.5 focus-within:border-accent">
+                    <Search size={12} className="shrink-0 text-faint" />
+                    <input
+                        value={filter}
+                        onChange={(event) => onFilterChange(event.target.value)}
+                        placeholder={
+                            view === "configs"
+                                ? "Filter configurations"
+                                : view === "mcp"
+                                  ? "Filter MCP configs"
+                                  : "Filter library"
+                        }
+                        spellCheck={false}
+                        className="min-w-0 flex-1 bg-transparent text-[11px] text-primary outline-none placeholder:text-faint"
+                    />
+                </label>
             </div>
 
-            <nav className="flex-1 overflow-y-auto px-2 py-3">
+            <nav className="flex-1 overflow-y-auto px-2 py-2">
+                {visibleFavorites.length > 0 && (
+                    <div className="mb-3">
+                        <p className="mb-1 flex items-center gap-1 px-2 py-1 text-[10px] font-semibold tracking-wider text-faint uppercase">
+                            <Star size={10} className="text-amber-500" />
+                            Favorites
+                        </p>
+                        <ul className="space-y-0.5">
+                            {visibleFavorites.map(({ tool, file }) => (
+                                <li key={`favorite-${file.path}`}>
+                                    <FileRow
+                                        file={file}
+                                        active={file.id === selectedId}
+                                        onClick={() => onSelect(tool, file)}
+                                    />
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
                 {groups.length === 0 && (
                     <p className="px-3 py-6 text-xs leading-relaxed text-faint">
-                        No tools detected yet. Config files appear here
-                        automatically once their directories exist.
+                        {needle
+                            ? `No ${
+                                  view === "mcp"
+                                      ? "MCP configuration"
+                                      : view === "library"
+                                        ? "library entry"
+                                        : "configuration"
+                              } matches this filter.`
+                            : view === "mcp"
+                              ? "No MCP configurations detected yet. Register a workspace with .mcp.json or install an extension that stores MCP settings."
+                              : view === "library"
+                                ? "No skills, agents, commands or instruction files detected yet."
+                                : "No tools detected yet. Config files appear here automatically once their directories exist."}
                     </p>
                 )}
                 {groups.map(({ group, items }) => {

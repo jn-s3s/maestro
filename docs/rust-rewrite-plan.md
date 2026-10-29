@@ -1,6 +1,6 @@
 # Maestro 2 Rust rewrite plan
 
-Status: Phase 3 complete as of 2026-10-28. Phases 4 and 5 remain proposals.
+Status: Phase 4 is complete as of 2026-10-29, including the follow-ups closed in its development record. Phase 5 remains a proposal.
 
 The original findings came from `review/fix-issues`. Phase 1 uses `feat/rust-rewrite-plan` at `d12492a`, whose package version is 1.1.0. The branch-specific inventory and verification results are recorded below.
 
@@ -376,3 +376,75 @@ node scripts/check-app.mjs tray
 ### Phase 3 completion
 
 Phase 3 completion criteria are met for the existing workflows: custom entries, formatting, Markdown preview, backup restoration, folder management, settings, watching and tray behavior. Phase 4 now owns the redesigned navigation, tabs, workspaces, validation and recovery workflows. Phase 5 still owns migration, packaged beta and rollback before Electron is replaced.
+
+## Phase 4 development record
+
+Recorded on 2026-10-29. Phase 4 delivered the redesigned navigation shell and the essentials around tabbed editing, workspaces, validation and recovery. The Tauri app keeps its native window decorations; the new top bar sits below them. A custom title bar is deferred.
+
+The phase also fixed a Phase 3 defect: the release app shipped without most Tailwind utilities because the Tauri Vite root is `src/app` while the shared renderer lives under `src/renderer`. Automation passed because it only checked behavior. `main.css` now declares explicit `@source` paths, and the GUI check asserts computed styles so a missing stylesheet fails the run.
+
+### Delivered surface
+
+| Area            | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Navigation      | A top bar carries the workspace selector, the search trigger and the inspector toggle. The sidebar switches between Configurations, MCP and Library collections, filters configurations by text, shows favorites first and groups workspace configs separately. Close to tray, theme switching and settings keep their existing places.                                                                                                                                                                                                                                                                                      |
+| Tabs            | Every open file becomes a tab with a dirty marker and a close prompt. The active editor captures its content as an in-memory draft when another tab or a folder takes over, so switching tabs does not lose unsaved edits. Activating a tab re-checks its stat, so a change made while it was in the background reloads a clean tab or marks a dirty one. Ctrl+Tab cycles tabs and Ctrl+W closes one.                                                                                                                                                                                                                        |
+| Draft recovery  | Unsaved edits are also written to an encrypted draft file shortly after typing stops. Drafts survive a restart and are restored as dirty tabs with the disk revision they were edited from. Saving, reloading, discarding a conflict or closing a dirty tab deletes the draft. The Electron build keeps drafts in memory only and reports no draft capability.                                                                                                                                                                                                                                                               |
+| Command palette | Ctrl+P opens a keyboard-driven palette with file switching, editor and app commands and content matches. Content search covers registered files only, skips secret-flagged and dotenv files, and returns at most five hits per file.                                                                                                                                                                                                                                                                                                                                                                                         |
+| Workspaces      | A registered workspace surfaces the project configs that exist under it: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.mcp.json`, Claude project settings, OpenCode project config, Gemini project settings, Continue project config, VS Code workspace settings and Aider project config. Precedence notes appear in the editor banner. The workspace filter narrows the sidebar to one project.                                                                                                                                                                                                                                 |
+| Collections     | The MCP view collects `.mcp.json`, `mcp.json` and Cline, Roo Code and Kilo Code MCP settings, including workspace files. The Library view collects skills, agents, commands, prompts, plugins and hooks folders plus AGENTS.md, CLAUDE.md and GEMINI.md. Both views have their own landing page and palette commands.                                                                                                                                                                                                                                                                                                        |
+| Discovery       | Favorites are stored as a local UI preference and appear above the tool groups. The sidebar filter matches tool names, file labels and paths. Workspace entries use the same rows as built-in tools. Files carry a discovery state: available, missing, unreadable or unsupported (a link, a folder or a file above 5 MB), with distinct row markers.                                                                                                                                                                                                                                                                        |
+| Validation      | Lezer parse errors appear as inline diagnostics and gutter markers for JSON, JSONC, YAML, JavaScript, TypeScript, Python and Markdown. Bundled key catalogs suggest root keys while editing MCP, Claude Code, Gemini CLI, OpenCode and VS Code JSON files, including MCP server keys inside `mcpServers`. Deprecated settings such as Claude Code `includeCoAuthoredBy` and the old VS Code terminal shell keys appear as warnings. The inspector counts problems and warnings separately and lists source, scope, disk state, revision and stored snapshots. JSON and JSONC pre-save validation remains the save authority. |
+| Editing         | The inspector adds reveal, reload and history actions. The editor toolbar keeps its existing actions, now wrapping when the editor pane is narrow so the file path stays visible.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Conflict saving | A save with a stale revision opens a three-column dialog with the loaded version, the user's edits and the current disk file. The user can reload the disk version or save their own. Saving their version snapshots the disk content first, then replaces the file with a fresh revision check. The shared renderer also compares the disk content with the loaded content before calling write, so the same dialog protects the Electron build, whose write command has no revision check.                                                                                                                                 |
+| History         | Snapshots can be named and pinned. Pinned snapshots are excluded from automatic pruning. The per-file retention is configurable from 1 to 100 snapshots with a default of 20. Renaming a managed file moves its encrypted history to the new path. Restore still shows the diff before writing.                                                                                                                                                                                                                                                                                                                              |
+
+### Command and permission surface
+
+The Tauri app now exposes 38 commands. The ten additions are `add_workspace`, `remove_workspace`, `set_history_limit`, `search_files`, `set_snapshot_meta`, `get_schema`, `check_config`, `save_draft`, `list_drafts` and `delete_draft`. The `app` capability keeps `core:default` and adds one permission for each new command. Path validation still runs before every filesystem, history or shell operation.
+
+### Data boundary
+
+- The Tauri app keeps settings, workspaces, the encrypted history key, encrypted snapshots, encrypted drafts and logs in its own app-data folder and never opens `%APPDATA%\maestro`.
+- Workspace paths are stored in Tauri settings. Registering a workspace does not add its root as a browsable folder, so arbitrary project files are not exposed to the editor. Only the known project config files that already exist and are not links become editable entries.
+- Snapshot display names and pin flags live in an unencrypted `_meta.json` file inside each per-file history folder. Snapshot contents remain encrypted. Do not use display names for secrets.
+- Drafts are encrypted with the same machine-bound key as snapshots and stored one file per source path under `drafts/`. The draft payload records the revision it was edited from, so a restart can flag a file that changed in the meantime. Drafts for paths that are no longer registered stay on disk encrypted and are ignored by recovery. The Electron build keeps drafts in memory only.
+
+### Deliberate differences and follow-ups
+
+- The Electron build reports no workspace, content search, snapshot metadata, retention, schema advice or draft recovery capability. The shared renderer hides those controls instead of calling missing commands. Tabs, the palette's file and command modes, the inspector, favorites, conflict dialog, available and missing discovery states, MCP and Library views and inline diagnostics work in both builds. The Electron registry does not report unreadable or unsupported states, so those markers appear in the Tauri build only.
+- Workspace discovery lists existing project files only. Missing project configs are not offered as empty templates.
+- Duplicate workspace paths are rejected, including a path already registered as a custom entry. Nested workspaces are allowed. A workspace root must be an existing folder, and project config files that are links are skipped during discovery.
+- Schema advice covers bundled top-level key catalogs for the five named JSON families plus a small settled deprecation set. It is not a full JSON Schema validator, does not validate value types and does not flag unknown keys.
+- Draft recovery only restores paths that are still registered. Draft files for unregistered paths are left untouched and have no user-facing cleanup screen yet.
+- MCP and Library are curated navigation views over detected entries. Creating, testing or applying shared MCP servers remains the separate MCP manager follow-up.
+- Unreadable detection opens each registered file during discovery, so a path whose metadata succeeds but whose read is denied is still classified. Links, folders and files above 5 MB are reported as unsupported.
+- The stale `prototype:*` scripts were removed. The `app:*` scripts are the only Tauri entry points; the retired Phase 1 files stay excluded from builds.
+
+### Verification
+
+- 91 Rust tests pass: 89 core tests (59 unit tests plus 8 detection, 15 file, 5 search and 2 workflow integration tests) and 2 legacy probe tests.
+- Rust formatting, Clippy with warnings denied and the full workspace test suite pass with `--locked`.
+- `pnpm typecheck`, `pnpm lint`, `pnpm format:check` and `pnpm build` pass.
+- `node scripts/check-app.mjs parity` passes 32 checks against the release executable. The checks cover discovery, discovery states, stylesheet application, open, save with an encrypted backup, history encryption, invalid JSON rejection, backup restore, external change warning, Markdown preview, tab drafts, inline validation and inspector, deprecated setting warnings, schema suggestions, favorites, palette content search, three-way conflict resolution, snapshot naming and pinning, custom entry, workspace discovery, workspace filter, MCP navigation, library navigation, folder create, folder rename, folder delete to the Recycle Bin, settings persistence, theme switching, encrypted draft persistence, draft recovery across a restart, draft cleanup after save and no page errors.
+- `node scripts/check-app.mjs tray` still passes the tray lifecycle: close hides the window with the draft intact, tray activation restores it and Quit exits with code 0.
+- Evidence lives in ignored `out/phase4/`: `parity.json`, `tray.json`, `parity.png`, `draft-recovery.png`, `history.png`, `conflict.png`, `tray-reopened.png` and `tray-menu.png`.
+- The parity driver uses a synthetic home, app data, local app data and data root. It never touches the real profile or Electron data. It sends one synthetic empty file to the Recycle Bin as part of the delete check.
+- Not verified: a machine without WebView2, an installed NSIS build, and settings or history migration. Those remain Phase 5 work.
+
+### Commands
+
+```powershell
+pnpm app:web
+pnpm app:dev
+pnpm app:build
+pnpm app:dist
+node scripts/check-app.mjs parity
+node scripts/check-app.mjs tray
+```
+
+`pnpm app:build` must run before either desktop check. A direct `cargo build --release` embeds the development URL instead of the bundled frontend and is not a valid check binary.
+
+### Phase 4 completion
+
+The redesigned navigation, tabs, workspaces, validation and recovery workflows are delivered for the Tauri app. Schema key suggestions, deprecated-setting warnings, encrypted draft recovery across restarts, unreadable and unsupported discovery states, and MCP and Library navigation are now included. Phase 5 owns migration, the packaged beta and rollback before Electron is replaced.

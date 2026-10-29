@@ -31,6 +31,14 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 }
 
 const api: Api = {
+    capabilities: {
+        workspaces: false,
+        search: false,
+        snapshotMeta: false,
+        historyLimit: false,
+        schemaAdvice: false,
+        draftRecovery: false,
+    },
     listTools: () => ipcRenderer.invoke("tools:list"),
     readFile: (filePath) => ipcRenderer.invoke("file:read", filePath),
     writeFile: (filePath, content) =>

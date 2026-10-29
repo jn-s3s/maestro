@@ -13,16 +13,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Phase 1 of the Rust rewrite: an isolated Tauri prototype with a synthetic CodeMirror fixture, native tray verification and a synthetic Electron backup compatibility probe
 - Phase 2 of the Rust rewrite: a Tauri-free `maestro-core` crate with tool detection, conflict-aware reads and writes, encrypted history and filesystem watching, covered by synthetic-fixture tests
 - Phase 3 of the Rust rewrite: a Tauri desktop app with feature parity, including real tool detection, conflict-aware saving, encrypted history and restore, folder management, custom entries, settings, watching, tray recents and close to tray
+- Phase 4 of the Rust rewrite: tabbed editing with in-memory drafts, a command palette with content search that skips secret and `.env` files, registered workspaces with project-local configs, favorites and sidebar filtering, inline syntax diagnostics, an inspector, a three-way conflict dialog and snapshot names, pins and configurable retention
+- Phase 4 follow-ups: schema key suggestions and deprecated-setting warnings for known JSON configs, MCP and Library navigation views, available, missing, unreadable and unsupported discovery states, and encrypted drafts that are restored after a restart
 - A typed Tauri bridge in `src/app` that reuses the existing React interface, with theme, recent-file and filesystem-change events
 - Rust settings, JSON and JSONC save validation, folder policies, history path validation and Windows-safe entry name validation in `maestro-core`
+- Workspace discovery, registered-file search and snapshot metadata in `maestro-core`, with 38 Tauri commands and permission entries for each
 
 ### Changed
 
 - `pnpm lint` now runs oxlint (correctness, suspicious and perf rules) before ESLint, and both must pass
 - CI now runs `pnpm format:check` as its first step, so unformatted code fails the build instead of merging
 - Electron packaging now includes only the built main, preload and renderer output, so prototype assets cannot enter the portable app
-- The Tauri app keeps its own settings and encrypted history in its app-data folder, leaves the Electron data in `%APPDATA%\maestro` untouched and does not run the legacy destructive startup resets
-- The Phase 1 fixture interface in `src/prototype` is retired and excluded from builds
+- The Tauri app keeps its own settings, encrypted history and encrypted drafts in its app-data folder, leaves the Electron data in `%APPDATA%\maestro` untouched and does not run the legacy destructive startup resets
+- The Phase 1 fixture interface in `src/prototype` is retired and excluded from builds, and the stale `prototype:*` scripts are removed in favor of the `app:*` commands
+- Tauri-only controls for workspaces, content search, snapshot metadata and retention are hidden in the Electron build through API capability flags
 
 ### Fixed
 
@@ -30,6 +34,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - JSONC comments now render with proper syntax highlighting (previously showed as plain white text)
 - Registering a custom file or folder outside an already registered region now works instead of being rejected by the duplicate check
 - Invalid JSON and JSONC now fail before a backup is written or the configuration file is replaced
+- The Tauri release app now ships its full Tailwind stylesheet: content detection starts at the `src/app` Vite root, so `main.css` declares both UI trees as explicit sources and the GUI check fails if computed styles are missing
+- Renaming a managed file now moves its encrypted snapshot history to the new path instead of leaving it behind
+- Activating a tab now re-checks the file, so an edit made while another tab was active reloads a clean tab or warns about a dirty one instead of showing stale content
+- Draft write failures now show a warning instead of silently leaving unsaved edits without a recovery copy
+- The snapshot limit field now clamps typed values to the supported 1 to 100 range
 
 ## [1.0.0] - 2026-08-29
 

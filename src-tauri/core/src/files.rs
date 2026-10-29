@@ -24,9 +24,8 @@ use crate::{
     },
     validation::{self, ContentError},
     watch::SelfWriteRegistry,
+    MAX_FILE_BYTES,
 };
-
-pub const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum FileError {
@@ -712,7 +711,10 @@ impl FileStore {
             }
         }
         match fs::rename(&source, &target) {
-            Ok(()) => Ok(target),
+            Ok(()) => {
+                let _ = self.history.rename_history(&source, &target);
+                Ok(target)
+            }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 Err(FileError::FileExists)
             }

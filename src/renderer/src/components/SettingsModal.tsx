@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX } from "react";
-import { Plus, Trash2, X } from "lucide-react";
-import type { AppSettings, Tool } from "../../../shared/types";
+import { FolderPlus, Plus, Trash2, X } from "lucide-react";
+import type { AppSettings, Tool, Workspace } from "../../../shared/types";
 import { useToast } from "./useToast";
 
 interface Props {
@@ -28,17 +28,28 @@ export default function SettingsModal({
     const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set(hidden));
     const [closeToTray, setCloseToTray] = useState(false);
     const [softWrap, setSoftWrap] = useState(true);
+    const [historyLimit, setHistoryLimit] = useState(20);
+    const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
     const [name, setName] = useState("");
     const [path, setPath] = useState("");
+    const [workspaceName, setWorkspaceName] = useState("");
+    const [workspacePath, setWorkspacePath] = useState("");
     const [error, setError] = useState<string | null>(null);
+    const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+    const supportsWorkspaces = window.api.capabilities.workspaces;
+    const supportsHistoryLimit = window.api.capabilities.historyLimit;
+
+    const applySettings = (s: AppSettings): void => {
+        setCloseToTray(s.closeToTray);
+        setSoftWrap(s.softWrap);
+        setHistoryLimit(s.historyLimit ?? 20);
+        setWorkspaces(s.workspaces ?? []);
+    };
 
     useEffect(() => {
         void window.api
             .getSettings()
-            .then((s: AppSettings) => {
-                setCloseToTray(s.closeToTray);
-                setSoftWrap(s.softWrap);
-            })
+            .then(applySettings)
             .catch((err) =>
                 toast.error(err instanceof Error ? err.message : String(err)),
             );
@@ -100,6 +111,54 @@ export default function SettingsModal({
     const removeCustom = async (id: string): Promise<void> => {
         try {
             await window.api.removeCustom(id);
+            await onChanged();
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        }
+    };
+
+    const applyHistoryLimit = async (value: number): Promise<void> => {
+        if (!window.api.setHistoryLimit || !supportsHistoryLimit) {
+            return;
+        }
+        try {
+            const saved = await window.api.setHistoryLimit(value);
+            applySettings(saved);
+            await onChanged();
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        }
+    };
+
+    const addWorkspace = async (): Promise<void> => {
+        setWorkspaceError(null);
+        if (!window.api.addWorkspace) {
+            return;
+        }
+        try {
+            const result = await window.api.addWorkspace(
+                workspaceName,
+                workspacePath,
+            );
+            if (!result.ok) {
+                setWorkspaceError(result.error ?? "Failed to add workspace");
+                return;
+            }
+            setWorkspaceName("");
+            setWorkspacePath("");
+            applySettings(await window.api.getSettings());
+            await onChanged();
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        }
+    };
+
+    const removeWorkspace = async (id: string): Promise<void> => {
+        if (!window.api.removeWorkspace) {
+            return;
+        }
+        try {
+            applySettings(await window.api.removeWorkspace(id));
             await onChanged();
         } catch (err) {
             toast.error(err instanceof Error ? err.message : String(err));
@@ -170,6 +229,135 @@ export default function SettingsModal({
                             </label>
                         </div>
                     </section>
+
+                    {supportsHistoryLimit && (
+                        <section className="border-t border-line pt-4">
+                            <p className="mb-2 text-xs font-medium text-secondary">
+                                History
+                            </p>
+                            <label className="flex items-center justify-between rounded-xl border border-line px-3.5 py-3">
+                                <span>
+                                    <span className="block text-sm text-primary">
+                                        Snapshots per file
+                                    </span>
+                                    <span className="block text-xs text-faint">
+                                        Older snapshots are pruned. Pinned
+                                        snapshots are never removed
+                                        automatically.
+                                    </span>
+                                </span>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={historyLimit}
+                                    onChange={(event) => {
+                                        const parsed = Number(
+                                            event.target.value,
+                                        );
+                                        const next = Number.isFinite(parsed)
+                                            ? Math.min(
+                                                  100,
+                                                  Math.max(
+                                                      1,
+                                                      Math.trunc(parsed),
+                                                  ),
+                                              )
+                                            : 1;
+                                        setHistoryLimit(next);
+                                    }}
+                                    onBlur={() =>
+                                        void applyHistoryLimit(historyLimit)
+                                    }
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                            event.currentTarget.blur();
+                                        }
+                                    }}
+                                    className="w-18 rounded-lg border border-line bg-app px-2 py-1 text-right text-sm text-primary outline-none focus:border-accent"
+                                />
+                            </label>
+                        </section>
+                    )}
+
+                    {supportsWorkspaces && (
+                        <section className="border-t border-line pt-4">
+                            <p className="mb-2 text-xs font-medium text-secondary">
+                                Workspaces
+                            </p>
+                            <p className="mb-2.5 text-xs text-faint">
+                                Register a project folder to surface its
+                                project-local configs next to the global ones.
+                            </p>
+                            {workspaces.length > 0 && (
+                                <ul className="mb-2 space-y-1">
+                                    {workspaces.map((workspace) => (
+                                        <li
+                                            key={workspace.id}
+                                            className="flex items-center gap-2 rounded-xl px-3 py-2 hover:bg-raised"
+                                        >
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block truncate text-sm text-primary">
+                                                    {workspace.name}
+                                                </span>
+                                                <span className="block truncate font-mono text-[10px] text-faint">
+                                                    {workspace.path}
+                                                </span>
+                                            </span>
+                                            <button
+                                                type="button"
+                                                title="Remove workspace"
+                                                onClick={() =>
+                                                    void removeWorkspace(
+                                                        workspace.id,
+                                                    )
+                                                }
+                                                className="rounded-lg p-1.5 text-faint transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            <div className="space-y-2">
+                                <input
+                                    value={workspaceName}
+                                    onChange={(event) =>
+                                        setWorkspaceName(event.target.value)
+                                    }
+                                    placeholder="Workspace name (e.g. Maestro)"
+                                    className="w-full rounded-xl border border-line bg-app px-3 py-2 text-sm text-primary outline-none transition-colors placeholder:text-faint focus:border-accent"
+                                />
+                                <input
+                                    value={workspacePath}
+                                    onChange={(event) =>
+                                        setWorkspacePath(event.target.value)
+                                    }
+                                    spellCheck={false}
+                                    placeholder="C:\Projects\your-project"
+                                    className="w-full rounded-xl border border-line bg-app px-3 py-2 font-mono text-xs text-primary outline-none transition-colors placeholder:text-faint focus:border-accent"
+                                />
+                                {workspaceError && (
+                                    <p className="text-xs text-rose-500">
+                                        {workspaceError}
+                                    </p>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => void addWorkspace()}
+                                    disabled={
+                                        !workspaceName.trim() ||
+                                        !workspacePath.trim()
+                                    }
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-accent2 disabled:pointer-events-none disabled:opacity-40"
+                                >
+                                    <FolderPlus size={13} />
+                                    Add workspace
+                                </button>
+                            </div>
+                        </section>
+                    )}
 
                     <section className="border-t border-line pt-4">
                         <p className="mb-2 text-xs font-medium text-secondary">

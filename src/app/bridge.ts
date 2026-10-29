@@ -4,9 +4,13 @@ import type {
     Api,
     AppSettings,
     BackupEntry,
+    ConfigWarning,
     DirEntry,
     FileStat,
     OpResult,
+    RecoveredDraft,
+    SchemaInfo,
+    SearchHit,
     ThemeMode,
     Tool,
 } from "../shared/types";
@@ -35,6 +39,10 @@ interface TauriBackups {
 interface TauriFolder {
     entries: DirEntry[];
     exists: boolean;
+}
+
+interface TauriSearch {
+    hits: SearchHit[];
 }
 
 let themeMode: ThemeMode = "system";
@@ -92,6 +100,14 @@ function subscribe<T>(
 
 function createApi(): Api {
     return {
+        capabilities: {
+            workspaces: true,
+            search: true,
+            snapshotMeta: true,
+            historyLimit: true,
+            schemaAdvice: true,
+            draftRecovery: true,
+        },
         listTools: () => invoke<{ tools: Tool[] }>("list_tools"),
         readFile: (path) => invoke<TauriRead>("read_file", { path }),
         writeFile: async (path, content, expectedRevision) => {
@@ -152,6 +168,55 @@ function createApi(): Api {
             }
         },
         removeCustom: (id) => invoke<AppSettings>("remove_custom", { id }),
+        addWorkspace: async (name, path) => {
+            try {
+                return await invoke<OpResult>("add_workspace", { name, path });
+            } catch (error) {
+                return { ok: false, error: errorText(error) };
+            }
+        },
+        removeWorkspace: (id) =>
+            invoke<AppSettings>("remove_workspace", { id }),
+        setHistoryLimit: (limit) =>
+            invoke<AppSettings>("set_history_limit", { limit }),
+        searchFiles: (query, limit) =>
+            invoke<TauriSearch>("search_files", { query, limit }),
+        setSnapshotMeta: async (backupPath, name, pinned) => {
+            try {
+                return await invoke<OpResult>("set_snapshot_meta", {
+                    backupPath,
+                    name,
+                    pinned,
+                });
+            } catch (error) {
+                return { ok: false, error: errorText(error) };
+            }
+        },
+        getSchema: (path) => invoke<SchemaInfo | null>("get_schema", { path }),
+        checkConfig: (path, content) =>
+            invoke<{ warnings: ConfigWarning[] }>("check_config", {
+                path,
+                content,
+            }),
+        saveDraft: async (path, content, baseRevision) => {
+            try {
+                return await invoke<OpResult>("save_draft", {
+                    path,
+                    content,
+                    baseRevision: baseRevision ?? null,
+                });
+            } catch (error) {
+                return { ok: false, error: errorText(error) };
+            }
+        },
+        listDrafts: () => invoke<{ drafts: RecoveredDraft[] }>("list_drafts"),
+        deleteDraft: async (path) => {
+            try {
+                return await invoke<OpResult>("delete_draft", { path });
+            } catch (error) {
+                return { ok: false, error: errorText(error) };
+            }
+        },
         pushRecent: (path) => invoke<void>("push_recent", { path }),
         listBackups: (filePath) =>
             invoke<TauriBackups>("list_backups", { filePath }),

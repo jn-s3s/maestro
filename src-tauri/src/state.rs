@@ -11,11 +11,12 @@ use std::{
 
 use maestro_core::{
     crypto::HistoryKey,
-    detection::{CustomEntry, DetectionEnv, Tool, detect_tools},
+    detection::{CustomEntry, DetectionEnv, Tool, detect_tools_with_workspaces},
+    drafts::DraftStore,
     files::{FileStore, Registry},
     history::HistoryStore,
     paths::lexical_normalize,
-    settings::{AppSettings, SettingsStore},
+    settings::{AppSettings, SettingsStore, Workspace, clamp_history_limit},
     watch::{SelfWriteRegistry, WatchHandle},
 };
 use tauri::Manager;
@@ -35,6 +36,7 @@ pub struct Inner {
 /// an in-flight operation.
 pub struct AppState {
     pub data_root: PathBuf,
+    pub drafts: DraftStore,
     key: HistoryKey,
     self_writes: Arc<SelfWriteRegistry>,
     inner: Mutex<Inner>,
@@ -56,14 +58,16 @@ impl AppState {
         let settings_store = SettingsStore::new(data_root.join("settings.json"));
         let settings = settings_store.load();
         let self_writes = Arc::new(SelfWriteRegistry::new());
-        let tools = detect_tools(&detection_env(), &settings.custom);
+        let tools =
+            detect_tools_with_workspaces(&detection_env(), &settings.custom, &settings.workspaces);
         let files = FileStore::new(
             Registry::new(tools.clone()),
-            HistoryStore::new(data_root.join("backups"), key.clone()),
+            history_store(&data_root, &key, &settings),
             Arc::clone(&self_writes),
         );
         Ok(Self {
-            data_root,
+            data_root: data_root.clone(),
+            drafts: DraftStore::new(data_root.join("drafts"), key.clone()),
             key,
             self_writes,
             inner: Mutex::new(Inner {
@@ -115,10 +119,14 @@ impl AppState {
     /// Re-detects tools and rebuilds the file store after a settings change or
     /// a filesystem mutation that can add or remove registered entries.
     pub fn refresh_tools(&self, inner: &mut Inner) {
-        let tools = detect_tools(&detection_env(), &inner.settings.custom);
+        let tools = detect_tools_with_workspaces(
+            &detection_env(),
+            &inner.settings.custom,
+            &inner.settings.workspaces,
+        );
         inner.files = FileStore::new(
             Registry::new(tools.clone()),
-            HistoryStore::new(self.data_root.join("backups"), self.key.clone()),
+            history_store(&self.data_root, &self.key, &inner.settings),
             Arc::clone(&self.self_writes),
         );
         inner.tools = tools;
@@ -150,6 +158,15 @@ impl Drop for AppState {
             watch.take();
         }
     }
+}
+
+fn history_store(data_root: &Path, key: &HistoryKey, settings: &AppSettings) -> HistoryStore {
+    HistoryStore::with_retention(
+        data_root.join("backups"),
+        key.clone(),
+        clamp_history_limit(settings.history_limit),
+    )
+    .expect("a clamped history limit is always valid")
 }
 
 fn override_path(name: &str) -> Option<PathBuf> {
@@ -223,4 +240,22 @@ pub fn new_custom_id(existing: &[CustomEntry]) -> String {
         }
     }
     format!("custom-{stamp:x}-overflow")
+}
+
+/// Builds a workspace identifier that no other workspace uses.
+///
+/// @param existing - Current workspaces, used to avoid a collision.
+/// @returns An identifier that is not present in `existing`.
+pub fn new_workspace_id(existing: &[Workspace]) -> String {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    for attempt in 0..1000u32 {
+        let candidate = format!("workspace-{stamp:x}-{attempt}");
+        if !existing.iter().any(|entry| entry.id == candidate) {
+            return candidate;
+        }
+    }
+    format!("workspace-{stamp:x}-overflow")
 }

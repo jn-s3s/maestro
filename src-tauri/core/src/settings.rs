@@ -14,6 +14,17 @@ use crate::{detection::CustomEntry, paths::path_key};
 
 pub const SETTINGS_VERSION: u32 = 1;
 pub const RECENT_LIMIT: usize = 5;
+pub const DEFAULT_HISTORY_LIMIT: usize = crate::history::DEFAULT_RETENTION;
+pub const MIN_HISTORY_LIMIT: usize = 1;
+pub const MAX_HISTORY_LIMIT: usize = 100;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub path: PathBuf,
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -45,9 +56,11 @@ pub struct AppSettings {
     pub theme: ThemeMode,
     pub close_to_tray: bool,
     pub soft_wrap: bool,
+    pub history_limit: usize,
     pub hidden_tools: Vec<String>,
     pub recent_files: Vec<String>,
     pub custom: Vec<CustomEntry>,
+    pub workspaces: Vec<Workspace>,
 }
 
 impl Default for AppSettings {
@@ -57,11 +70,21 @@ impl Default for AppSettings {
             theme: ThemeMode::System,
             close_to_tray: false,
             soft_wrap: true,
+            history_limit: DEFAULT_HISTORY_LIMIT,
             hidden_tools: Vec::new(),
             recent_files: Vec::new(),
             custom: Vec::new(),
+            workspaces: Vec::new(),
         }
     }
+}
+
+/// Clamps a stored history limit into the supported range.
+///
+/// @param value - The untrusted stored value.
+/// @returns A retention between one and the maximum.
+pub fn clamp_history_limit(value: usize) -> usize {
+    value.clamp(MIN_HISTORY_LIMIT, MAX_HISTORY_LIMIT)
 }
 
 impl AppSettings {
@@ -82,9 +105,16 @@ impl AppSettings {
             theme: ThemeMode::from_stored(object.get("theme").and_then(|theme| theme.as_str())),
             close_to_tray: object.get("closeToTray").and_then(|flag| flag.as_bool()) == Some(true),
             soft_wrap: object.get("softWrap").and_then(|flag| flag.as_bool()) != Some(false),
+            history_limit: object
+                .get("historyLimit")
+                .and_then(|limit| limit.as_u64())
+                .map_or(DEFAULT_HISTORY_LIMIT, |limit| {
+                    clamp_history_limit(usize::try_from(limit).unwrap_or(MAX_HISTORY_LIMIT))
+                }),
             hidden_tools: string_array(object.get("hiddenTools")),
             recent_files: string_array(object.get("recentFiles")),
             custom: custom_entries(object.get("custom")),
+            workspaces: workspace_entries(object.get("workspaces")),
         }
     }
 
@@ -103,6 +133,28 @@ fn string_array(value: Option<&serde_json::Value>) -> Vec<String> {
             array
                 .iter()
                 .filter_map(|entry| entry.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn workspace_entries(value: Option<&serde_json::Value>) -> Vec<Workspace> {
+    value
+        .and_then(|array| array.as_array())
+        .map(|array| {
+            array
+                .iter()
+                .filter_map(|entry| {
+                    let entry = entry.as_object()?;
+                    let id = entry.get("id")?.as_str()?;
+                    let name = entry.get("name")?.as_str()?;
+                    let path = entry.get("path")?.as_str()?;
+                    Some(Workspace {
+                        id: id.to_owned(),
+                        name: name.to_owned(),
+                        path: PathBuf::from(path),
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -263,16 +315,31 @@ mod tests {
                 "softWrap": false,
                 "hiddenTools": ["claude-code", 4, null],
                 "recentFiles": "not-an-array",
-                "custom": [{"id": "custom-1", "name": "Mine", "path": "C:\\x\\y.json"}, {"id": 2}]
+                "historyLimit": 5000,
+                "custom": [{"id": "custom-1", "name": "Mine", "path": "C:\\x\\y.json"}, {"id": 2}],
+                "workspaces": [{"id": "workspace-1", "name": "Project", "path": "C:\\work\\app"}, {"name": "No id"}]
             }"#,
         );
         assert_eq!(settings.theme, ThemeMode::System);
         assert!(!settings.close_to_tray);
         assert!(!settings.soft_wrap);
+        assert_eq!(settings.history_limit, MAX_HISTORY_LIMIT);
         assert_eq!(settings.hidden_tools, ["claude-code"]);
         assert!(settings.recent_files.is_empty());
         assert_eq!(settings.custom.len(), 1);
         assert_eq!(settings.custom[0].name, "Mine");
+        assert_eq!(settings.workspaces.len(), 1);
+        assert_eq!(settings.workspaces[0].name, "Project");
+    }
+
+    #[test]
+    fn history_limit_defaults_and_clamps() {
+        let settings = AppSettings::from_json(r#"{"historyLimit": 0}"#);
+        assert_eq!(settings.history_limit, MIN_HISTORY_LIMIT);
+        let settings = AppSettings::from_json(r#"{"historyLimit": 12}"#);
+        assert_eq!(settings.history_limit, 12);
+        let settings = AppSettings::from_json(r#"{"historyLimit": -3}"#);
+        assert_eq!(settings.history_limit, DEFAULT_HISTORY_LIMIT);
     }
 
     #[test]

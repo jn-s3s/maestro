@@ -14,6 +14,7 @@ import {
     RefreshCw,
     RotateCcw,
     Save,
+    Star,
     Trash2,
     TriangleAlert,
     Info,
@@ -26,6 +27,14 @@ import {
     type Extension,
 } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
+import { syntaxTree } from "@codemirror/language";
+import { linter, lintGutter, type Diagnostic } from "@codemirror/lint";
+import {
+    autocompletion,
+    type Completion,
+    type CompletionContext,
+    type CompletionResult,
+} from "@codemirror/autocomplete";
 import { basicSetup } from "codemirror";
 import { json } from "@codemirror/lang-json";
 import { jsonc } from "@shopify/lang-jsonc";
@@ -33,7 +42,12 @@ import { yaml } from "@codemirror/lang-yaml";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { javascript } from "@codemirror/lang-javascript";
-import type { FileLang } from "../../../shared/types";
+import type {
+    ConfigWarning,
+    FileLang,
+    SchemaKey,
+    SchemaScope,
+} from "../../../shared/types";
 import { fmtBytes, fmtTime, LANG_LABELS } from "../lib/format";
 import { editorTheme } from "./editor/themes";
 import { toml } from "./editor/toml";
@@ -42,6 +56,12 @@ import { useToast } from "./useToast";
 export interface EditorHandle {
     getContent(): string;
     applyEdit(content: string): void;
+    revealLine(line: number): void;
+}
+
+export interface DiagnosticSummary {
+    errors: number;
+    warnings: number;
 }
 
 interface Props {
@@ -69,6 +89,12 @@ interface Props {
     onHistoryClick?: () => void;
     onReloadClick?: () => void;
     onDelete?: () => void;
+    isFavorite?: boolean;
+    onToggleFavorite?: () => void;
+    onDiagnostics?: (summary: DiagnosticSummary) => void;
+    restartHint?: boolean;
+    schemaKeys?: SchemaKey[];
+    checkAdvice?: (content: string) => Promise<ConfigWarning[]>;
 }
 
 const iconBtn =
@@ -114,6 +140,138 @@ function themeFor(mode: "light" | "dark"): Extension[] {
 }
 
 /**
+ * Collects Lezer error nodes as inline diagnostics.
+ *
+ * @param view - The editor view whose syntax tree is inspected.
+ * @param label - Human-readable language label for the message.
+ * @returns At most 100 diagnostics covering the parse errors.
+ */
+function syntaxProblems(view: EditorView, label: string): Diagnostic[] {
+    const length = view.state.doc.length;
+    const problems: Diagnostic[] = [];
+    syntaxTree(view.state).iterate({
+        enter: (node) => {
+            if (!node.type.isError || problems.length >= 100) {
+                return;
+            }
+            const from = Math.min(node.from, length);
+            const to = Math.min(Math.max(node.to, node.from + 1), length);
+            problems.push({
+                from,
+                to,
+                severity: "error",
+                message: `Syntax error in ${label}`,
+            });
+        },
+    });
+    return problems;
+}
+
+/**
+ * Estimates whether the cursor sits inside an MCP server object by counting
+ * braces after the nearest `mcpServers` key.
+ *
+ * @param text - The full document text.
+ * @param position - The completion position.
+ * @returns `server` inside a named server object, otherwise `root`.
+ */
+function schemaScopeAt(text: string, position: number): SchemaScope {
+    const marker = text.lastIndexOf('"mcpServers"', position);
+    if (marker < 0) {
+        return "root";
+    }
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = marker + 12; index < position; index += 1) {
+        const character = text[index];
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (character === "\\") {
+                escaped = true;
+            } else if (character === '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (character === '"') {
+            inString = true;
+        } else if (character === "{") {
+            depth += 1;
+        } else if (character === "}") {
+            depth = Math.max(0, depth - 1);
+        }
+    }
+    return depth >= 2 ? "server" : "root";
+}
+
+/**
+ * Suggests bundled schema keys at a JSON property position.
+ *
+ * @param getKeys - Accessor for the active file's schema keys.
+ * @param context - The CodeMirror completion context.
+ * @returns Matching key completions, or null outside a property name.
+ */
+function schemaCompletions(
+    getKeys: () => SchemaKey[],
+    context: CompletionContext,
+): CompletionResult | null {
+    const line = context.state.doc.lineAt(context.pos);
+    const prefix = line.text.slice(0, context.pos - line.from);
+    const match = /^\s*"?([\w$.-]*)$/.exec(prefix);
+    if (!match) {
+        return null;
+    }
+    const typed = match[1] ?? "";
+    if (!context.explicit && typed.length === 0) {
+        return null;
+    }
+    const scope = schemaScopeAt(context.state.doc.toString(), context.pos);
+    const options = getKeys()
+        .filter(
+            (key) =>
+                key.scope === scope &&
+                key.name.toLowerCase().startsWith(typed.toLowerCase()),
+        )
+        .map((key) => ({
+            label: key.name,
+            detail: key.detail,
+            type: "property",
+            apply: (
+                view: EditorView,
+                completion: Completion,
+                from: number,
+                to: number,
+            ) => {
+                const suffix = view.state.doc.sliceString(
+                    to,
+                    view.state.doc.length,
+                );
+                const closesQuote = suffix.startsWith('"');
+                const separator = /^"?\s*:\s*/.exec(suffix)?.[0];
+                view.dispatch({
+                    changes: {
+                        from,
+                        to: to + (separator?.length ?? Number(closesQuote)),
+                        insert: `"${completion.label}": `,
+                    },
+                    selection: { anchor: from + completion.label.length + 4 },
+                });
+            },
+        }));
+    if (options.length === 0) {
+        return null;
+    }
+    const quoted = prefix.trimStart().startsWith('"');
+    return {
+        from: context.pos - typed.length - (quoted ? 1 : 0),
+        options,
+        validFor: /^"?[\w$.-]*$/,
+    };
+}
+
+/**
  * CodeMirror editor with optional folder-style toolbar, banners, and status bar.
  * When selFolderRef is provided, renders a navigation toolbar mirroring FolderView.
  *
@@ -124,8 +282,16 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
     const viewRef = useRef<EditorView | null>(null);
     const [themeComp] = useState(() => new Compartment());
     const [wrapComp] = useState(() => new Compartment());
+    const initialContentRef = useRef(props.initialContent);
     const toast = useToast();
     const saveRef = useRef(props.onSave);
+
+    // The editor is recreated by reloadKey, not by a new baseline after a save.
+    // Keeping the latest initial content in a ref lets the mount read it
+    // without remounting the view and losing the cursor or undo history.
+    useEffect(() => {
+        initialContentRef.current = props.initialContent;
+    }, [props.initialContent]);
 
     useEffect(() => {
         saveRef.current = props.onSave;
@@ -140,6 +306,21 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
     useEffect(() => {
         onChangeRef.current = props.onChange;
     }, [props.onChange]);
+
+    const onDiagnosticsRef = useRef(props.onDiagnostics);
+    useEffect(() => {
+        onDiagnosticsRef.current = props.onDiagnostics;
+    }, [props.onDiagnostics]);
+
+    const schemaKeysRef = useRef<SchemaKey[]>(props.schemaKeys ?? []);
+    useEffect(() => {
+        schemaKeysRef.current = props.schemaKeys ?? [];
+    }, [props.schemaKeys]);
+
+    const checkAdviceRef = useRef(props.checkAdvice);
+    useEffect(() => {
+        checkAdviceRef.current = props.checkAdvice;
+    }, [props.checkAdvice]);
 
     const modeRef = useRef(props.mode);
     useEffect(() => {
@@ -171,7 +352,7 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
         }
         const view = new EditorView({
             state: EditorState.create({
-                doc: props.initialContent,
+                doc: initialContentRef.current,
                 extensions: [
                     basicSetup,
                     themeComp.of(themeFor(modeRef.current)),
@@ -179,6 +360,77 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                         softWrapRef.current ? EditorView.lineWrapping : [],
                     ),
                     ...languageFor(props.lang),
+                    ...(props.lang === "json" || props.lang === "jsonc"
+                        ? [
+                              autocompletion({
+                                  override: [
+                                      (context) =>
+                                          schemaCompletions(
+                                              () => schemaKeysRef.current,
+                                              context,
+                                          ),
+                                  ],
+                              }),
+                          ]
+                        : []),
+                    lintGutter(),
+                    linter(
+                        async (lintedView) => {
+                            const problems = syntaxProblems(
+                                lintedView,
+                                LANG_LABELS[props.lang] ?? props.lang,
+                            );
+                            const errors = problems.length;
+                            let warnings = 0;
+                            const check = checkAdviceRef.current;
+                            if (
+                                check &&
+                                lintedView.state.doc.length <= 512 * 1024
+                            ) {
+                                try {
+                                    const text =
+                                        lintedView.state.doc.toString();
+                                    const advice = await check(text);
+                                    for (const item of advice) {
+                                        let from = 0;
+                                        let to = Math.min(
+                                            lintedView.state.doc.length,
+                                            1,
+                                        );
+                                        if (item.key) {
+                                            const index = text.indexOf(
+                                                `"${item.key}"`,
+                                            );
+                                            if (index < 0) {
+                                                continue;
+                                            }
+                                            from = index;
+                                            to = index + item.key.length + 2;
+                                        }
+                                        problems.push({
+                                            from,
+                                            to,
+                                            severity: "warning",
+                                            message: item.message,
+                                        });
+                                        warnings += 1;
+                                    }
+                                } catch {
+                                    // Advice is optional and never blocks editing.
+                                }
+                            }
+                            window.setTimeout(
+                                () =>
+                                    onDiagnosticsRef.current?.({
+                                        errors,
+                                        warnings,
+                                    }),
+                                0,
+                            );
+                            return problems;
+                        },
+                        { delay: 450 },
+                    ),
                     Prec.high(
                         keymap.of([
                             {
@@ -207,13 +459,7 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
             view.destroy();
             viewRef.current = null;
         };
-    }, [
-        props.reloadKey,
-        props.initialContent,
-        props.lang,
-        themeComp,
-        wrapComp,
-    ]);
+    }, [props.reloadKey, props.lang, themeComp, wrapComp]);
 
     useImperativeHandle(
         ref,
@@ -232,14 +478,32 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                     },
                 });
             },
+            revealLine: (line) => {
+                const view = viewRef.current;
+                if (!view) {
+                    return;
+                }
+                const target = Math.min(
+                    Math.max(Math.trunc(line), 1),
+                    view.state.doc.lines,
+                );
+                const info = view.state.doc.line(target);
+                view.dispatch({
+                    selection: { anchor: info.from },
+                    effects: EditorView.scrollIntoView(info.from, {
+                        y: "center",
+                    }),
+                });
+                view.focus();
+            },
         }),
         [],
     );
 
     return (
-        <div className="flex h-full flex-col">
+        <div data-editor-pane="true" className="flex h-full flex-col">
             {/* Toolbar */}
-            <div className="flex items-center gap-2 border-b border-line bg-surface px-4 py-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-surface px-4 py-2">
                 {props.onBack && (
                     <button
                         type="button"
@@ -250,7 +514,7 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                         <ChevronLeft size={15} />
                     </button>
                 )}
-                <div className="min-w-0 flex-1">
+                <div className="min-w-40 flex-1">
                     <div className="truncate text-sm font-medium text-primary">
                         {props.parentLabel ?? ""}
                     </div>
@@ -262,6 +526,25 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                     </div>
                 </div>
                 <div className="flex items-center gap-1">
+                    {props.onToggleFavorite && (
+                        <button
+                            type="button"
+                            title={
+                                props.isFavorite
+                                    ? "Remove from favorites"
+                                    : "Add to favorites"
+                            }
+                            onClick={() => props.onToggleFavorite?.()}
+                            className={`${iconBtn} ${props.isFavorite ? "text-amber-500" : ""}`}
+                        >
+                            <Star
+                                size={15}
+                                fill={
+                                    props.isFavorite ? "currentColor" : "none"
+                                }
+                            />
+                        </button>
+                    )}
                     {props.onHistoryClick && (
                         <button
                             type="button"
@@ -406,6 +689,11 @@ const EditorPane = forwardRef<EditorHandle, Props>((props, ref) => {
                     <span>
                         {fmtBytes(props.fileSize || 0)} · modified{" "}
                         {fmtTime(props.fileMtime || 0)}
+                    </span>
+                )}
+                {props.restartHint && (
+                    <span className="text-amber-500">
+                        restart the tool after saving
                     </span>
                 )}
                 <span

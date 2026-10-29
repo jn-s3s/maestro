@@ -5,21 +5,40 @@
 
 use std::{
     collections::HashSet,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 
 use serde::Serialize;
 
-use crate::paths::{canonical_or_lexical, component_count, is_within, lexical_normalize, path_key};
+use crate::{
+    paths::{
+        canonicalize, canonical_or_lexical, component_count, is_within, lexical_normalize,
+        metadata_is_link, path_key,
+    },
+    settings::Workspace,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolGroup {
+    Workspace,
     Cli,
     Editor,
     Ext,
     Custom,
+}
+
+/// Discovery state of a registered file. A path can exist on disk yet still be
+/// unusable because it is unreadable, a link, a folder or larger than the
+/// editor limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FileState {
+    Available,
+    Missing,
+    Unreadable,
+    Unsupported,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -83,6 +102,7 @@ pub struct ToolFile {
     pub label: String,
     pub path: PathBuf,
     pub exists: bool,
+    pub state: FileState,
     pub lang: FileLang,
     pub secret: bool,
     pub note: Option<String>,
@@ -222,15 +242,47 @@ fn cline_sessions_dir(env: &DetectionEnv) -> PathBuf {
 }
 
 fn make_file(id: &str, label: &str, path: PathBuf, section: &str) -> ToolFile {
+    let state = discovery_state(&path);
     ToolFile {
         id: id.to_owned(),
         label: label.to_owned(),
-        exists: path.exists(),
+        exists: state != FileState::Missing,
+        state,
         lang: lang_from_path(&path),
         path,
         secret: false,
         note: None,
         section: Some(section.to_owned()),
+    }
+}
+
+/// Classifies a registered file for display and opening decisions.
+///
+/// @param path - Absolute config file path.
+/// @returns The discovery state. Missing paths are distinguished from paths
+/// that exist but cannot be read or opened by the editor.
+fn discovery_state(path: &Path) -> FileState {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) => return state_from_error(&error),
+    };
+    if metadata_is_link(&metadata) || !metadata.file_type().is_file() {
+        return FileState::Unsupported;
+    }
+    if metadata.len() > crate::MAX_FILE_BYTES {
+        return FileState::Unsupported;
+    }
+    match fs::File::open(path) {
+        Ok(_) => FileState::Available,
+        Err(error) => state_from_error(&error),
+    }
+}
+
+fn state_from_error(error: &io::Error) -> FileState {
+    if error.kind() == io::ErrorKind::NotFound {
+        FileState::Missing
+    } else {
+        FileState::Unreadable
     }
 }
 
@@ -288,8 +340,23 @@ fn join_slash_path(base: &Path, relative: &str) -> PathBuf {
 ///
 /// @param env - Filesystem roots used for detection.
 /// @param custom - User-registered custom files and folders.
-/// @returns The detected tools in display order.
+/// @returns The detected tools in display order, without workspaces.
 pub fn detect_tools(env: &DetectionEnv, custom: &[CustomEntry]) -> Vec<Tool> {
+    detect_tools_with_workspaces(env, custom, &[])
+}
+
+/// Builds the registry of known AI tool configs, custom entries and
+/// project-local workspace configs.
+///
+/// @param env - Filesystem roots used for detection.
+/// @param custom - User-registered custom files and folders.
+/// @param workspaces - Registered project folders, scanned for local configs.
+/// @returns The detected tools in display order.
+pub fn detect_tools_with_workspaces(
+    env: &DetectionEnv,
+    custom: &[CustomEntry],
+    workspaces: &[Workspace],
+) -> Vec<Tool> {
     let mut tools = Vec::new();
     let home = &env.home;
 
@@ -705,11 +772,16 @@ pub fn detect_tools(env: &DetectionEnv, custom: &[CustomEntry]) -> Vec<Tool> {
                         join_slash_path(&extension_dir, extension_file),
                         "Config",
                     )
-                    .with_note(RELOAD_NOTE),
+                    .with_note(RELOAD_NOTE)
+                    .with_secret(Some("May contain MCP server credentials.")),
                 ],
                 folders: Vec::new(),
             });
         }
+    }
+
+    for workspace in workspaces {
+        tools.push(workspace_tool(workspace));
     }
 
     for entry in custom {
@@ -774,6 +846,142 @@ pub fn detect_tools(env: &DetectionEnv, custom: &[CustomEntry]) -> Vec<Tool> {
     }
 
     tools
+}
+
+/// Project-local config files detected inside a registered workspace. Only
+/// known configuration locations are registered, so a workspace never exposes
+/// arbitrary project files to the editor.
+const WORKSPACE_RULES: [(&str, &str, &str, &str); 12] = [
+    (
+        "agents",
+        "AGENTS.md",
+        "AGENTS.md",
+        "Shared agent instructions for this workspace.",
+    ),
+    (
+        "claude-md",
+        "CLAUDE.md",
+        "CLAUDE.md",
+        "Project instructions for Claude Code.",
+    ),
+    (
+        "gemini-md",
+        "GEMINI.md",
+        "GEMINI.md",
+        "Project instructions for Gemini CLI.",
+    ),
+    (
+        "mcp",
+        ".mcp.json",
+        ".mcp.json",
+        "Project-scoped MCP servers shared with compatible tools.",
+    ),
+    (
+        "claude-settings",
+        ".claude/settings.json",
+        "Claude settings.json",
+        "Project settings take precedence over the global Claude Code settings.",
+    ),
+    (
+        "claude-local",
+        ".claude/settings.local.json",
+        "Claude settings.local.json",
+        "Local project overrides, usually kept out of version control.",
+    ),
+    (
+        "opencode-json",
+        "opencode.json",
+        "opencode.json",
+        "Project config takes precedence over the global OpenCode config.",
+    ),
+    (
+        "opencode-jsonc",
+        "opencode.jsonc",
+        "opencode.jsonc",
+        "Project config takes precedence over the global OpenCode config.",
+    ),
+    (
+        "gemini-settings",
+        ".gemini/settings.json",
+        "Gemini settings.json",
+        "Project settings override the global Gemini CLI settings.",
+    ),
+    (
+        "continue-config",
+        ".continue/config.yaml",
+        "Continue config.yaml",
+        "Project config overrides the global Continue config.",
+    ),
+    (
+        "vscode-settings",
+        ".vscode/settings.json",
+        "VS Code settings.json",
+        "Workspace settings override user settings for this folder.",
+    ),
+    (
+        "aider-config",
+        ".aider.conf.yml",
+        ".aider.conf.yml",
+        "Aider reads the nearest project config before the home config.",
+    ),
+];
+
+/// Builds a workspace tool from the project config files that exist.
+///
+/// Symbolic links are skipped so workspace detection cannot register a path
+/// outside the project folder.
+///
+/// @param workspace - The registered workspace.
+/// @returns The workspace tool, with only existing project config files.
+fn workspace_tool(workspace: &Workspace) -> Tool {
+    let files = WORKSPACE_RULES
+        .iter()
+        .filter_map(|(id, relative, label, note)| {
+            let path = join_slash_path(&workspace.path, relative);
+            let metadata = fs::symlink_metadata(&path).ok()?;
+            if metadata_is_link(&metadata) || !metadata.file_type().is_file() {
+                return None;
+            }
+            let workspace_root = canonicalize(&workspace.path).ok()?;
+            let canonical_path = canonicalize(&path).ok()?;
+            if !is_within(&canonical_path, &workspace_root) {
+                return None;
+            }
+            let mut ancestor = path.parent();
+            while let Some(parent) = ancestor {
+                if parent == workspace.path {
+                    break;
+                }
+                if fs::symlink_metadata(parent)
+                    .is_ok_and(|metadata| metadata_is_link(&metadata))
+                {
+                    return None;
+                }
+                ancestor = parent.parent();
+            }
+            let file = make_file(
+                &format!("{}/{}", workspace.id, id),
+                label,
+                path,
+                "Workspace",
+            )
+            .with_note(note);
+            Some(if *id == "mcp" {
+                file.with_secret(Some(note))
+            } else {
+                file
+            })
+        })
+        .collect();
+    Tool {
+        id: workspace.id.clone(),
+        name: workspace.name.clone(),
+        group: ToolGroup::Workspace,
+        subtitle: Some(workspace.path.to_string_lossy().into_owned()),
+        roots: Vec::new(),
+        files,
+        folders: Vec::new(),
+    }
 }
 
 fn registry_key(path: &Path) -> String {
@@ -884,5 +1092,52 @@ mod tests {
         assert_eq!(slug("Config"), "config");
         assert_eq!(slug("Data Files"), "data-files");
         assert_eq!(slug("!!!"), "root");
+    }
+
+    #[test]
+    fn classifies_discovery_states() {
+        let temp = tempfile::tempdir().unwrap();
+        let available = temp.path().join("settings.json");
+        fs::write(&available, "{}").unwrap();
+        let folder = temp.path().join("folder.json");
+        fs::create_dir(&folder).unwrap();
+        let oversized = temp.path().join("large.json");
+        fs::write(&oversized, vec![b'x'; crate::MAX_FILE_BYTES as usize + 1]).unwrap();
+
+        assert_eq!(discovery_state(&available), FileState::Available);
+        assert_eq!(
+            discovery_state(&temp.path().join("missing.json")),
+            FileState::Missing
+        );
+        assert_eq!(discovery_state(&folder), FileState::Unsupported);
+        assert_eq!(discovery_state(&oversized), FileState::Unsupported);
+        assert_eq!(
+            state_from_error(&io::Error::from(io::ErrorKind::PermissionDenied)),
+            FileState::Unreadable
+        );
+        assert_eq!(
+            state_from_error(&io::Error::from(io::ErrorKind::NotFound)),
+            FileState::Missing
+        );
+
+        let tool = Tool {
+            id: "synthetic".into(),
+            name: "Synthetic".into(),
+            group: ToolGroup::Custom,
+            subtitle: None,
+            roots: Vec::new(),
+            files: vec![make_file("synthetic/file", "settings.json", available.clone(), "Config")],
+            folders: Vec::new(),
+        };
+        assert_eq!(tool.files[0].state, FileState::Available);
+        assert!(tool.files[0].exists);
+        let missing = make_file(
+            "synthetic/missing",
+            "missing.json",
+            temp.path().join("missing.json"),
+            "Config",
+        );
+        assert_eq!(missing.state, FileState::Missing);
+        assert!(!missing.exists);
     }
 }

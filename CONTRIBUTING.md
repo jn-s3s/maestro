@@ -35,7 +35,7 @@ Useful commands:
 | `pnpm app:check tray`                                                  | Run the Windows tray lifecycle check; run `pnpm app:build` first                                                                       |
 | `cargo test --locked --manifest-path src-tauri/Cargo.toml --workspace` | Run the Rust core and desktop tests                                                                                                    |
 
-The Electron app has no test framework configured, so `pnpm format:check`, `pnpm typecheck` and `pnpm lint` are its verification gates. CI runs format check, typecheck, lint and build on every push and pull request targeting `main`. The Tauri app additionally has 63 Rust tests and two Windows GUI checks driven by `scripts/check-app.mjs`. Changes under `src-tauri/` must also pass `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace`.
+The Electron app has no test framework configured, so `pnpm format:check`, `pnpm typecheck`, `pnpm lint` and `pnpm build` are its verification gates. CI runs format check, typecheck, lint and build on every push and pull request targeting `main`. The Tauri app additionally has 91 Rust tests and two Windows GUI check suites driven by `scripts/check-app.mjs`: the 32-check parity run and the 3-check tray lifecycle. Changes under `src-tauri/` must also pass `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace`.
 
 ## How to contribute
 

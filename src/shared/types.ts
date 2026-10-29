@@ -20,11 +20,19 @@ export interface ToolRoot {
     label?: string; // optional folder-row label; defaults to section
 }
 
+/**
+ * Discovery state of a registered file. Older backends omit `state`, so the
+ * renderer falls back to `exists`.
+ */
+export type DiscoveryState =
+    "available" | "missing" | "unreadable" | "unsupported";
+
 export interface ToolFile {
     id: string;
     label: string;
     path: string;
     exists: boolean;
+    state?: DiscoveryState;
     lang: FileLang;
     parentPath?: string;
     parentLabel?: string;
@@ -50,7 +58,7 @@ export interface DirEntry {
     size: number;
 }
 
-export type ToolGroup = "cli" | "editor" | "ext" | "custom";
+export type ToolGroup = "workspace" | "cli" | "editor" | "ext" | "custom";
 
 export interface Tool {
     id: string;
@@ -70,6 +78,12 @@ export interface CustomEntry {
 
 export type ThemeMode = "system" | "light" | "dark";
 
+export interface Workspace {
+    id: string;
+    name: string;
+    path: string;
+}
+
 export interface AppSettings {
     version: number;
     theme: ThemeMode;
@@ -81,6 +95,8 @@ export interface AppSettings {
     hiddenTools: string[];
     recentFiles: string[];
     custom: CustomEntry[];
+    historyLimit?: number;
+    workspaces?: Workspace[];
 }
 
 export interface ReadResult {
@@ -110,11 +126,59 @@ export interface BackupEntry {
     path: string;
     mtime: number;
     size: number;
+    name?: string | null;
+    pinned?: boolean;
 }
 
 export interface FileStat {
     size: number;
     mtime: number;
+}
+
+export interface SearchHit {
+    path: string;
+    label: string;
+    line: number;
+    preview: string;
+}
+
+export type SchemaScope = "root" | "server";
+
+export interface SchemaKey {
+    name: string;
+    detail: string;
+    scope: SchemaScope;
+}
+
+export interface SchemaInfo {
+    id: string;
+    label: string;
+    keys: SchemaKey[];
+}
+
+export interface ConfigWarning {
+    key?: string | null;
+    message: string;
+}
+
+export interface RecoveredDraft {
+    path: string;
+    content: string;
+    baseRevision?: string | null;
+    savedAt: number;
+}
+
+/**
+ * Optional backend surfaces. The Electron build reports all false and the
+ * renderer hides the matching controls instead of calling missing commands.
+ */
+export interface ApiCapabilities {
+    workspaces: boolean;
+    search: boolean;
+    snapshotMeta: boolean;
+    historyLimit: boolean;
+    schemaAdvice: boolean;
+    draftRecovery: boolean;
 }
 
 /**
@@ -165,6 +229,7 @@ export function langFromPath(filePath: string): FileLang {
 }
 
 export interface Api {
+    capabilities: ApiCapabilities;
     listTools(): Promise<{ tools: Tool[] }>;
     readFile(path: string): Promise<ReadResult>;
     writeFile(
@@ -182,6 +247,27 @@ export interface Api {
     setSoftWrap(value: boolean): Promise<AppSettings>;
     addCustom(name: string, path: string): Promise<OpResult>;
     removeCustom(id: string): Promise<AppSettings>;
+    addWorkspace?(name: string, path: string): Promise<OpResult>;
+    removeWorkspace?(id: string): Promise<AppSettings>;
+    setHistoryLimit?(limit: number): Promise<AppSettings>;
+    searchFiles?(query: string, limit?: number): Promise<{ hits: SearchHit[] }>;
+    setSnapshotMeta?(
+        backupPath: string,
+        name: string | null,
+        pinned: boolean,
+    ): Promise<OpResult>;
+    getSchema?(path: string): Promise<SchemaInfo | null>;
+    checkConfig?(
+        path: string,
+        content: string,
+    ): Promise<{ warnings: ConfigWarning[] }>;
+    saveDraft?(
+        path: string,
+        content: string,
+        baseRevision?: string | null,
+    ): Promise<OpResult>;
+    listDrafts?(): Promise<{ drafts: RecoveredDraft[] }>;
+    deleteDraft?(path: string): Promise<OpResult>;
     pushRecent(path: string): Promise<void>;
     listBackups(filePath: string): Promise<{ entries: BackupEntry[] }>;
     readBackup(backupPath: string): Promise<{ content: string }>;

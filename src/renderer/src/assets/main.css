@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* The Tauri Vite root is src/app, so Tailwind's automatic content detection
+   starts outside the shared renderer. Declare both UI trees explicitly. */
+@source "../**/*.{ts,tsx}";
+@source "../../../app/**/*.{ts,tsx}";
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
