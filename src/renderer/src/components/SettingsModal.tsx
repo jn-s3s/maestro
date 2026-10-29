@@ -1,6 +1,11 @@
 import { useEffect, useState, type JSX } from "react";
 import { FolderPlus, Plus, Trash2, X } from "lucide-react";
-import type { AppSettings, Tool, Workspace } from "../../../shared/types";
+import type {
+    AppSettings,
+    LegacyStatus,
+    Tool,
+    Workspace,
+} from "../../../shared/types";
 import { useToast } from "./useToast";
 
 interface Props {
@@ -36,8 +41,12 @@ export default function SettingsModal({
     const [workspacePath, setWorkspacePath] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+    const [legacy, setLegacy] = useState<LegacyStatus | null>(null);
+    const [importing, setImporting] = useState(false);
+    const [importNotes, setImportNotes] = useState<string | null>(null);
     const supportsWorkspaces = window.api.capabilities.workspaces;
     const supportsHistoryLimit = window.api.capabilities.historyLimit;
+    const supportsLegacyImport = window.api.capabilities.legacyImport;
 
     const applySettings = (s: AppSettings): void => {
         setCloseToTray(s.closeToTray);
@@ -54,6 +63,64 @@ export default function SettingsModal({
                 toast.error(err instanceof Error ? err.message : String(err)),
             );
     }, [toast]);
+
+    useEffect(() => {
+        if (!supportsLegacyImport || !window.api.legacyStatus) {
+            return;
+        }
+        void window.api
+            .legacyStatus()
+            .then(setLegacy)
+            .catch((err) =>
+                toast.error(err instanceof Error ? err.message : String(err)),
+            );
+    }, [supportsLegacyImport, toast]);
+
+    const importLegacy = async (): Promise<void> => {
+        if (!window.api.importLegacy) {
+            return;
+        }
+        setImporting(true);
+        setImportNotes(null);
+        try {
+            const result = await window.api.importLegacy();
+            applySettings(result.settings);
+            await window.api.setTheme(result.settings.theme).catch(() => {});
+            await onChanged().catch((err) =>
+                toast.error(err instanceof Error ? err.message : String(err)),
+            );
+            if (window.api.legacyStatus) {
+                await window.api
+                    .legacyStatus()
+                    .then(setLegacy)
+                    .catch(() => {});
+            }
+            const imported = [
+                result.settingsImported ? "settings" : null,
+                result.snapshotsImported > 0
+                    ? `${result.snapshotsImported} snapshot${
+                          result.snapshotsImported === 1 ? "" : "s"
+                      }`
+                    : null,
+            ].filter((part): part is string => part !== null);
+            if (imported.length > 0) {
+                toast.success(`Imported ${imported.join(" and ")}`);
+            } else {
+                toast.info("No new Maestro 1 data to import");
+            }
+            if (result.warnings.length > 0) {
+                setImportNotes(
+                    `${result.warnings.length} item${
+                        result.warnings.length === 1 ? "" : "s"
+                    } could not be imported. Details are in the log.`,
+                );
+            }
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : String(err));
+        } finally {
+            setImporting(false);
+        }
+    };
 
     const toggleHidden = async (id: string): Promise<void> => {
         const next = new Set(hiddenSet);
@@ -229,6 +296,51 @@ export default function SettingsModal({
                             </label>
                         </div>
                     </section>
+
+                    {supportsLegacyImport && legacy?.available && (
+                        <section className="border-t border-line pt-4">
+                            <p className="mb-2 text-xs font-medium text-secondary">
+                                Maestro 1 migration
+                            </p>
+                            <div className="space-y-2.5 rounded-xl border border-line px-3.5 py-3">
+                                <p className="text-xs text-faint">
+                                    Copy settings and snapshot history from
+                                    Maestro 1. The existing data in{" "}
+                                    <span className="font-mono">
+                                        {legacy.source}
+                                    </span>{" "}
+                                    stays untouched, so you can keep using the
+                                    old app.
+                                </p>
+                                {legacy.alreadyImported &&
+                                    legacy.lastImportedAt && (
+                                        <p className="text-xs text-secondary">
+                                            Last imported{" "}
+                                            {new Date(
+                                                legacy.lastImportedAt,
+                                            ).toLocaleString()}
+                                        </p>
+                                    )}
+                                {importNotes && (
+                                    <p className="text-xs text-amber-500">
+                                        {importNotes}
+                                    </p>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => void importLegacy()}
+                                    disabled={importing}
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-accent2 disabled:pointer-events-none disabled:opacity-40"
+                                >
+                                    {importing
+                                        ? "Importing..."
+                                        : legacy.alreadyImported
+                                          ? "Import new Maestro 1 history"
+                                          : "Import settings and history"}
+                                </button>
+                            </div>
+                        </section>
+                    )}
 
                     {supportsHistoryLimit && (
                         <section className="border-t border-line pt-4">

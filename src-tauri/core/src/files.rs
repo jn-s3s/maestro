@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
+    MAX_FILE_BYTES,
     detection::{Tool, ToolFolder},
     hex_lower,
     history::HistoryStore,
@@ -24,7 +25,6 @@ use crate::{
     },
     validation::{self, ContentError},
     watch::SelfWriteRegistry,
-    MAX_FILE_BYTES,
 };
 
 #[derive(Debug, Error)]
@@ -843,7 +843,11 @@ impl FileStore {
         self.self_writes.mark(&temp_path);
         if let Err(source) = preserve_permissions(existing, &temp_path) {
             remove_quietly(&temp_path);
-            return Err(FileError::io("restrict temporary permissions for", target, source));
+            return Err(FileError::io(
+                "restrict temporary permissions for",
+                target,
+                source,
+            ));
         }
         let result = file.write_all(bytes).and_then(|()| file.sync_all());
         drop(file);
@@ -902,7 +906,9 @@ fn read_limited_file(file: File, path: &Path) -> Result<Vec<u8>, FileError> {
 #[cfg(windows)]
 fn opened_file_path(file: &File, display_path: &Path) -> Result<PathBuf, FileError> {
     use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
-    use windows_sys::Win32::Storage::FileSystem::{GetFinalPathNameByHandleW, FILE_NAME_NORMALIZED};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW,
+    };
 
     let handle = file.as_raw_handle().cast();
     let mut buffer = vec![0u16; 32_768];
@@ -990,8 +996,8 @@ fn open_new_file_secure(path: &Path) -> io::Result<File> {
     };
     use windows_sys::Win32::{
         Foundation::{GENERIC_WRITE, INVALID_HANDLE_VALUE, LocalFree},
-        Security::SECURITY_ATTRIBUTES,
         Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW,
+        Security::SECURITY_ATTRIBUTES,
         Storage::FileSystem::{CREATE_NEW, CreateFileW, FILE_ATTRIBUTE_NORMAL},
     };
 
@@ -1070,12 +1076,12 @@ fn sync_parent(path: &Path) {
 fn sync_parent(_path: &Path) {}
 
 #[cfg(not(windows))]
-fn replace_existing(temp: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn replace_existing(temp: &Path, target: &Path) -> io::Result<()> {
     fs::rename(temp, target)
 }
 
 #[cfg(windows)]
-fn replace_existing(temp: &Path, target: &Path) -> io::Result<()> {
+pub(crate) fn replace_existing(temp: &Path, target: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use std::time::{Duration, Instant};
     use windows_sys::Win32::Storage::FileSystem::{

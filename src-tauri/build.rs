@@ -11,6 +11,8 @@ const COMMANDS: &[&str] = &[
     "set_theme",
     "set_close_to_tray",
     "set_soft_wrap",
+    "legacy_status",
+    "import_legacy",
     "add_custom",
     "remove_custom",
     "add_workspace",

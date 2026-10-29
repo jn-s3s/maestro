@@ -33,9 +33,10 @@ Useful commands:
 | `pnpm app:build`                                                       | Build the Tauri release executable                                                                                                     |
 | `pnpm app:check parity`                                                | Run the Windows GUI parity checks; run `pnpm app:build` first                                                                          |
 | `pnpm app:check tray`                                                  | Run the Windows tray lifecycle check; run `pnpm app:build` first                                                                       |
+| `pnpm app:check migration`                                             | Run the Maestro 1 migration and rollback check; run `pnpm app:build` first                                                             |
 | `cargo test --locked --manifest-path src-tauri/Cargo.toml --workspace` | Run the Rust core and desktop tests                                                                                                    |
 
-The Electron app has no test framework configured, so `pnpm format:check`, `pnpm typecheck`, `pnpm lint` and `pnpm build` are its verification gates. CI runs format check, typecheck, lint and build on every push and pull request targeting `main`. The Tauri app additionally has 91 Rust tests and two Windows GUI check suites driven by `scripts/check-app.mjs`: the 32-check parity run and the 3-check tray lifecycle. Changes under `src-tauri/` must also pass `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace`.
+The Electron app has no test framework configured, so `pnpm format:check`, `pnpm typecheck`, `pnpm lint` and `pnpm build` are its verification gates. CI runs format check, typecheck, lint and build on every push and pull request targeting `main`. The Tauri app additionally has 108 Rust tests and three Windows GUI check suites driven by `scripts/check-app.mjs`: the 32-check parity run, the 3-check tray lifecycle and the 8-check Maestro 1 migration run. Changes under `src-tauri/` must also pass `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace`.
 
 ## How to contribute
 

@@ -308,9 +308,7 @@ async function connectWebview(child, port) {
 /* oxlint-enable no-await-in-loop */
 
 async function tauriSmoke() {
-    const executable = path.resolve(
-        "src-tauri/target/release/maestro-prototype.exe",
-    );
+    const executable = path.resolve("src-tauri/target/release/maestro.exe");
     const port = 19220;
     // The debug port belongs only to this verification child, never the shipped configuration.
     try {
@@ -462,9 +460,7 @@ async function tauriSmoke() {
 }
 
 async function traySmoke() {
-    const executable = path.resolve(
-        "src-tauri/target/release/maestro-prototype.exe",
-    );
+    const executable = path.resolve("src-tauri/target/release/maestro.exe");
     const port = 19224;
     const profile = path.join(sandbox, "tray-webview2");
     const child = spawn(executable, [], {

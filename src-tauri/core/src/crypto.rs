@@ -254,7 +254,7 @@ pub fn open(key: &HistoryKey, stored: &str) -> Result<String, CryptoError> {
 }
 
 #[cfg(windows)]
-fn dpapi_protect(secret: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub(crate) fn dpapi_protect(secret: &[u8]) -> Result<Vec<u8>, CryptoError> {
     use windows_sys::Win32::Security::Cryptography::{
         CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData,
     };
@@ -290,7 +290,7 @@ fn dpapi_protect(secret: &[u8]) -> Result<Vec<u8>, CryptoError> {
 }
 
 #[cfg(windows)]
-fn dpapi_unprotect(protected: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub(crate) fn dpapi_unprotect(protected: &[u8]) -> Result<Vec<u8>, CryptoError> {
     use windows_sys::Win32::Security::Cryptography::{
         CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptUnprotectData,
     };

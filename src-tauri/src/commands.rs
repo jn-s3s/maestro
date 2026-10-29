@@ -18,11 +18,11 @@ use maestro_core::{
     watch::{WatchMode, watch_path},
 };
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 use crate::{
     shell,
-    state::{AppState, new_custom_id, new_workspace_id},
+    state::{AppState, LegacyImportResult, LegacyStatus, new_custom_id, new_workspace_id},
     tray,
 };
 
@@ -354,6 +354,31 @@ pub fn set_soft_wrap(state: State<'_, AppState>, value: bool) -> Result<AppSetti
     let mut settings = inner.settings.clone();
     settings.soft_wrap = value;
     state.save_settings(&mut inner, settings)
+}
+
+#[tauri::command]
+pub fn legacy_status(state: State<'_, AppState>) -> LegacyStatus {
+    state.legacy_status()
+}
+
+#[tauri::command]
+pub fn import_legacy(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<LegacyImportResult, String> {
+    let result = state.import_legacy()?;
+    let theme = match result.settings.theme {
+        ThemeMode::System => None,
+        ThemeMode::Light => Some(tauri::Theme::Light),
+        ThemeMode::Dark => Some(tauri::Theme::Dark),
+    };
+    if let Err(error) = window.set_theme(theme) {
+        state.log("migration", &format!("apply window theme: {error}"));
+    }
+    if let Err(error) = tray::update(window.app_handle()) {
+        state.log("migration", &error);
+    }
+    Ok(result)
 }
 
 #[tauri::command]

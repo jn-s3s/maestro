@@ -1,11 +1,12 @@
 //! Core library for Maestro 2: detection, settings, safe file access, encrypted
-//! history and watching.
+//! history, migration from Maestro 1 and watching.
 
 pub mod crypto;
 pub mod detection;
 pub mod drafts;
 pub mod files;
 pub mod history;
+pub mod migration;
 pub mod names;
 pub mod paths;
 pub mod schema;

@@ -8,11 +8,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $process = Get-Process -Id $RootProcessId
-$expectedPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../src-tauri/target/release/maestro-prototype.exe'))
+$expectedPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../src-tauri/target/release/maestro.exe'))
 if ($process.Path -ne $expectedPath) {
     throw 'The target process is not this checkout''s release app'
 }
-$others = @(Get-Process -Name 'maestro-prototype' -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $RootProcessId })
+$others = @(Get-Process -Name 'maestro' -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $RootProcessId })
 if ($others.Count -ne 0) {
     throw "Close other Maestro windows before the tray check. Extra PID(s): $($others.Id -join ', ')"
 }

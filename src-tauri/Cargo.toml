@@ -2,11 +2,11 @@
 members = ["core"]
 
 [package]
-name = "maestro-prototype"
+name = "maestro"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-default-run = "maestro-prototype"
+default-run = "maestro"
 publish = false
 
 [build-dependencies]

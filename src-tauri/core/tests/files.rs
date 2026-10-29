@@ -672,8 +672,5 @@ fn renaming_a_managed_file_moves_its_history() {
     assert!(history.list(&file).unwrap().is_empty());
     let entries = history.list(&renamed).unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!(
-        history.read_path(&entries[0].path).unwrap(),
-        "{\"v\":1}"
-    );
+    assert_eq!(history.read_path(&entries[0].path).unwrap(), "{\"v\":1}");
 }

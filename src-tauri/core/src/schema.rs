@@ -466,14 +466,26 @@ mod tests {
     fn classifies_known_schemas() {
         let cases = [
             (r"C:\Users\me\.mcp.json", "mcp"),
-            (r"C:\Users\me\AppData\Roaming\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json", "mcp"),
+            (
+                r"C:\Users\me\AppData\Roaming\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json",
+                "mcp",
+            ),
             (r"C:\Users\me\.claude\settings.json", "claude"),
             (r"C:\Users\me\.claude\settings.local.json", "claude"),
             (r"C:\Users\me\.gemini\settings.json", "gemini"),
             (r"C:\Users\me\.config\opencode\opencode.jsonc", "opencode"),
-            (r"C:\Users\me\AppData\Roaming\Code\User\settings.json", "vscode"),
-            (r"C:\Users\me\AppData\Roaming\Code - Insiders\User\settings.json", "vscode"),
-            (r"C:\Users\me\AppData\Roaming\VSCodium\User\settings.json", "vscode"),
+            (
+                r"C:\Users\me\AppData\Roaming\Code\User\settings.json",
+                "vscode",
+            ),
+            (
+                r"C:\Users\me\AppData\Roaming\Code - Insiders\User\settings.json",
+                "vscode",
+            ),
+            (
+                r"C:\Users\me\AppData\Roaming\VSCodium\User\settings.json",
+                "vscode",
+            ),
             (r"C:\project\.vscode\settings.json", "vscode"),
         ];
         for (path, expected) in cases {
@@ -482,7 +494,12 @@ mod tests {
         }
         assert!(schema_for(Path::new(r"C:\Users\me\.continue\config.json")).is_none());
         assert!(schema_for(Path::new(r"C:\Users\me\custom.json")).is_none());
-        assert!(schema_for(Path::new(r"C:\Users\me\AppData\Roaming\Other\User\settings.json")).is_none());
+        assert!(
+            schema_for(Path::new(
+                r"C:\Users\me\AppData\Roaming\Other\User\settings.json"
+            ))
+            .is_none()
+        );
     }
 
     #[test]
@@ -503,8 +520,16 @@ mod tests {
             }
         }
         let mcp = schema_for(Path::new(r"C:\Users\me\.mcp.json")).unwrap();
-        assert!(mcp.keys.iter().any(|key| key.scope == "server" && key.name == "command"));
-        assert!(mcp.keys.iter().any(|key| key.scope == "root" && key.name == "mcpServers"));
+        assert!(
+            mcp.keys
+                .iter()
+                .any(|key| key.scope == "server" && key.name == "command")
+        );
+        assert!(
+            mcp.keys
+                .iter()
+                .any(|key| key.scope == "root" && key.name == "mcpServers")
+        );
     }
 
     #[test]
@@ -515,8 +540,16 @@ mod tests {
         );
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].key, Some("includeCoAuthoredBy"));
-        assert!(warnings_for(r"C:\Users\me\.claude\settings.json", r#"{"model": "opus"}"#).is_empty());
-        assert!(warnings_for(r"C:\Users\me\.claude\settings.json", r#"{"includeCoAuthoredBy": }"#).is_empty());
+        assert!(
+            warnings_for(r"C:\Users\me\.claude\settings.json", r#"{"model": "opus"}"#).is_empty()
+        );
+        assert!(
+            warnings_for(
+                r"C:\Users\me\.claude\settings.json",
+                r#"{"includeCoAuthoredBy": }"#
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -549,7 +582,19 @@ mod tests {
 
     #[test]
     fn leaves_other_json_files_alone() {
-        assert!(warnings_for(r"C:\Users\me\package.json", r#"{"includeCoAuthoredBy": false}"#).is_empty());
-        assert!(warnings_for(r"C:\Users\me\.gemini\settings.json", r#"{"includeCoAuthoredBy": false}"#).is_empty());
+        assert!(
+            warnings_for(
+                r"C:\Users\me\package.json",
+                r#"{"includeCoAuthoredBy": false}"#
+            )
+            .is_empty()
+        );
+        assert!(
+            warnings_for(
+                r"C:\Users\me\.gemini\settings.json",
+                r#"{"includeCoAuthoredBy": false}"#
+            )
+            .is_empty()
+        );
     }
 }

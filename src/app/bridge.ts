@@ -7,6 +7,8 @@ import type {
     ConfigWarning,
     DirEntry,
     FileStat,
+    LegacyImportResult,
+    LegacyStatus,
     OpResult,
     RecoveredDraft,
     SchemaInfo,
@@ -107,6 +109,7 @@ function createApi(): Api {
             historyLimit: true,
             schemaAdvice: true,
             draftRecovery: true,
+            legacyImport: true,
         },
         listTools: () => invoke<{ tools: Tool[] }>("list_tools"),
         readFile: (path) => invoke<TauriRead>("read_file", { path }),
@@ -160,6 +163,8 @@ function createApi(): Api {
         setCloseToTray: (value) =>
             invoke<AppSettings>("set_close_to_tray", { value }),
         setSoftWrap: (value) => invoke<AppSettings>("set_soft_wrap", { value }),
+        legacyStatus: () => invoke<LegacyStatus>("legacy_status"),
+        importLegacy: () => invoke<LegacyImportResult>("import_legacy"),
         addCustom: async (name, path) => {
             try {
                 return await invoke<OpResult>("add_custom", { name, path });

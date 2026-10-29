@@ -1,6 +1,4 @@
-#[path = "../legacy.rs"]
-mod legacy;
-
+use maestro_core::migration::{LegacyProfileKey, decode_snapshot};
 use serde::Deserialize;
 use std::{fs, process::ExitCode};
 
@@ -27,8 +25,9 @@ fn verify() -> Result<(), Box<dyn std::error::Error>> {
     if fixtures.samples.is_empty() {
         return Err("No compatibility samples supplied".into());
     }
+    let key = LegacyProfileKey::from_encoded(&fixtures.encrypted_key)?;
     for sample in &fixtures.samples {
-        let result = legacy::decode(&sample.stored, &fixtures.encrypted_key);
+        let result = decode_snapshot(&sample.stored, Some(&key));
         let passed = match (&sample.expected, result) {
             (Some(expected), Ok(actual)) => *expected == actual,
             (None, Err(_)) => true,

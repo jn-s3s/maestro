@@ -1,6 +1,6 @@
 # Maestro 2 Rust rewrite plan
 
-Status: Phase 4 is complete as of 2026-10-29, including the follow-ups closed in its development record. Phase 5 remains a proposal.
+Status: Phase 5 is complete as of 2026-10-29. The Tauri beta imports Maestro 1 settings and encrypted history, keeps the legacy data untouched for rollback, and builds its own installer. Electron remains the application shipped by the normal build commands.
 
 The original findings came from `review/fix-issues`. Phase 1 uses `feat/rust-rewrite-plan` at `d12492a`, whose package version is 1.1.0. The branch-specific inventory and verification results are recorded below.
 
@@ -448,3 +448,62 @@ node scripts/check-app.mjs tray
 ### Phase 4 completion
 
 The redesigned navigation, tabs, workspaces, validation and recovery workflows are delivered for the Tauri app. Schema key suggestions, deprecated-setting warnings, encrypted draft recovery across restarts, unreadable and unsupported discovery states, and MCP and Library navigation are now included. Phase 5 owns migration, the packaged beta and rollback before Electron is replaced.
+
+## Phase 5 development record
+
+Recorded on 2026-10-29. Phase 5 delivered Maestro 1 migration, the beta app identity and packaged builds. Electron remains the application shipped by the normal build commands.
+
+### Identity and data roots
+
+The Tauri app now uses the identifier `dev.jn-s3s.maestro` and the binary `maestro.exe`, both owned by Phase 5. Its data root is normally `%APPDATA%\dev.jn-s3s.maestro` on Windows. The Electron build keeps `%APPDATA%\maestro` unchanged. Phase 4 development data under `%APPDATA%\dev.jn-s3s.maestro.prototype` is not imported; only prototype builds used that folder.
+
+### Migration
+
+The Settings modal shows a Maestro 1 migration section when the Electron data root contains `settings.json` or `backups`. The import runs only when the user presses the button. It never writes, renames or deletes anything in the legacy root, so rollback is simply running Electron again.
+
+| Area     | Behavior                                                                                                                                                                                                                                                  |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Settings | The first import copies theme, close to tray and soft wrap, unions hidden tools, merges recent files and custom entries, and preserves Tauri-only workspaces and the history limit. Later imports do not reapply settings                                 |
+| History  | Every registered file whose per-file backup folder exists in the legacy root is imported. Plain text snapshots pass through; `maestro-enc:v1` snapshots are decrypted with the Electron profile key from `Local State` and re-encrypted with the Rust key |
+| Ordering | Snapshot names are preserved. Consecutive duplicate content is skipped, an existing name with different content becomes `imported-N-<name>`, and the configured retention limit runs after each file                                                      |
+| Record   | `migration.json` in the Tauri data root records the time, source, counts and non-fatal warnings. Warnings list snapshot names and errors, never configuration contents                                                                                    |
+| Retry    | Pressing the button again imports history that appeared later. Settings are only imported when no record exists yet                                                                                                                                       |
+
+The profile key is read from `<legacy_root>\Local State` and unwrapped with DPAPI for the current Windows account. When the key is missing or unreadable, plain text snapshots still import and encrypted snapshots are skipped with warnings. A corrupt Electron settings file is reported and skipped. A snapshot that Electron is replacing at the exact moment it is read can be skipped; importing again picks it up.
+
+Legacy backup folders whose names do not match a currently registered file, such as history for a removed custom entry, are counted as unmatched and left untouched. Tauri never writes the legacy root, so concurrent Electron use cannot be corrupted by the importer.
+
+### Command and permission surface
+
+The Tauri app now exposes 40 commands. The two additions are `legacy_status` and `import_legacy`. Both use the internally resolved Electron data root; no renderer-supplied path reaches the legacy filesystem. The `app` capability adds one permission for each command, and the Settings section is hidden in the Electron build through the `legacyImport` capability flag.
+
+### Verification
+
+- 108 core tests pass: 74 unit tests plus 8 detection, 15 file, 9 search and 2 workflow integration tests. The legacy probe's two decoder tests moved into `maestro-core`, and the probe binary now uses the same decoder as migration.
+- Rust formatting, Clippy with warnings denied and the full workspace test suite pass with `--locked`.
+- `pnpm typecheck`, `pnpm lint`, `pnpm format:check` and `pnpm build` pass.
+- `node scripts/check-app.mjs migration` passes 8 checks against the release executable. A bundled Electron fixture generates a synthetic Maestro 1 profile in a sandbox: settings, one plain text snapshot, one snapshot encrypted by Electron 44.2.0 safe storage, and an unmatched folder. The check imports from the Settings modal, verifies the merged settings, reads both snapshots back through the Tauri history API, checks the migration record, repeats the import to confirm deduplication, opens the imported custom entry and confirms the dark theme applies. It then hashes the whole legacy tree to prove it is byte-identical and runs Electron again to decode the encrypted snapshot, proving rollback.
+- `node scripts/check-app.mjs parity` still passes 32 checks and `node scripts/check-app.mjs tray` still passes the tray lifecycle against the renamed release executable.
+- `node scripts/check-prototype.mjs compat` still passes all ten Electron 44.2.0 backup samples through the relocated decoder.
+- `pnpm app:build` produces `src-tauri/target/release/maestro.exe`. `pnpm app:dist` produces `src-tauri/target/release/bundle/nsis/Maestro_0.1.0_x64-setup.exe` at 210.84 MiB with the WebView2 offline runtime.
+- Evidence lives in ignored `out/phase5/`: `parity.json`, `tray.json`, `migration.json` and `migration.png`.
+- Not verified: installing the NSIS package on a clean Windows machine or one without WebView2, beta feedback, and selecting the Tauri app as the shipped release.
+
+### Commands
+
+```powershell
+pnpm app:web
+pnpm app:dev
+pnpm app:build
+pnpm app:dist
+node scripts/check-app.mjs parity
+node scripts/check-app.mjs tray
+node scripts/check-app.mjs migration
+node scripts/check-prototype.mjs compat
+```
+
+`pnpm app:build` must run before the desktop checks. The migration check also needs the Electron dependency installed, because it generates the synthetic Maestro 1 profile with the real safe storage implementation.
+
+### Phase 5 completion
+
+The migration, rollback proof, rename and beta packaging criteria are delivered. Maestro 1 settings and encrypted history can be imported through Settings without modifying the legacy data. Switching the release channel to the Tauri app and clean-machine installer verification remain release work rather than part of this phase record.

@@ -15,10 +15,16 @@ use maestro_core::{
     drafts::DraftStore,
     files::{FileStore, Registry},
     history::HistoryStore,
+    migration::{
+        self, ImportRecord, LegacyProfileKey, RECORD_VERSION, import_history,
+        legacy_data_available, merge_settings, now_ms, read_legacy_settings, read_record,
+        write_record,
+    },
     paths::lexical_normalize,
     settings::{AppSettings, SettingsStore, Workspace, clamp_history_limit},
     watch::{SelfWriteRegistry, WatchHandle},
 };
+use serde::Serialize;
 use tauri::Manager;
 
 pub const DATA_ROOT_OVERRIDE: &str = "MAESTRO_DATA_ROOT";
@@ -36,11 +42,37 @@ pub struct Inner {
 /// an in-flight operation.
 pub struct AppState {
     pub data_root: PathBuf,
+    legacy_root: PathBuf,
     pub drafts: DraftStore,
     key: HistoryKey,
     self_writes: Arc<SelfWriteRegistry>,
     inner: Mutex<Inner>,
     watch: Mutex<Option<WatchHandle>>,
+}
+
+/// Whether the Maestro 1 data root has anything to import and when it was
+/// imported last.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyStatus {
+    pub available: bool,
+    pub source: String,
+    pub already_imported: bool,
+    pub last_imported_at: Option<i64>,
+}
+
+/// Result of one explicit import from the Maestro 1 data root.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyImportResult {
+    pub settings: AppSettings,
+    pub settings_imported: bool,
+    pub snapshots_imported: usize,
+    pub snapshots_existing: usize,
+    pub snapshots_skipped: usize,
+    pub files_matched: usize,
+    pub unmatched_folders: usize,
+    pub warnings: Vec<String>,
 }
 
 impl AppState {
@@ -58,8 +90,9 @@ impl AppState {
         let settings_store = SettingsStore::new(data_root.join("settings.json"));
         let settings = settings_store.load();
         let self_writes = Arc::new(SelfWriteRegistry::new());
-        let tools =
-            detect_tools_with_workspaces(&detection_env(), &settings.custom, &settings.workspaces);
+        let env = detection_env();
+        let legacy_root = env.appdata.join(migration::LEGACY_DIR_NAME);
+        let tools = detect_tools_with_workspaces(&env, &settings.custom, &settings.workspaces);
         let files = FileStore::new(
             Registry::new(tools.clone()),
             history_store(&data_root, &key, &settings),
@@ -67,6 +100,7 @@ impl AppState {
         );
         Ok(Self {
             data_root: data_root.clone(),
+            legacy_root,
             drafts: DraftStore::new(data_root.join("drafts"), key.clone()),
             key,
             self_writes,
@@ -77,6 +111,107 @@ impl AppState {
                 files,
             }),
             watch: Mutex::new(None),
+        })
+    }
+
+    /// Describes the available Maestro 1 data and the last import.
+    pub fn legacy_status(&self) -> LegacyStatus {
+        let record = read_record(&self.data_root);
+        LegacyStatus {
+            available: legacy_data_available(&self.legacy_root),
+            source: self.legacy_root.to_string_lossy().into_owned(),
+            already_imported: record.is_some(),
+            last_imported_at: record.map(|record| record.completed_at),
+        }
+    }
+
+    /// Imports Maestro 1 settings on the first run and copies every matching
+    /// snapshot into encrypted Tauri history. Legacy files are never written.
+    ///
+    /// @returns Import counts and the settings after merging.
+    /// @throws When there is nothing to import or the new data cannot be saved.
+    pub fn import_legacy(&self) -> Result<LegacyImportResult, String> {
+        if !legacy_data_available(&self.legacy_root) {
+            return Err(format!(
+                "No Maestro 1 data found in {}",
+                self.legacy_root.display()
+            ));
+        }
+        let mut inner = self.lock_inner();
+        let first_import = read_record(&self.data_root).is_none();
+        let mut settings_imported = false;
+        let mut warnings = Vec::new();
+        if first_import {
+            match read_legacy_settings(&self.legacy_root) {
+                Some(legacy) => {
+                    let merged = merge_settings(&inner.settings, &legacy);
+                    if merged != inner.settings {
+                        self.save_settings(&mut inner, merged)?;
+                        self.refresh_tools(&mut inner);
+                    }
+                    settings_imported = true;
+                }
+                None if self.legacy_root.join("settings.json").is_file() => {
+                    warnings.push("Maestro 1 settings could not be read".to_owned());
+                }
+                None => {}
+            }
+        }
+        let profile_key = match LegacyProfileKey::load(&self.legacy_root) {
+            Ok(key) => key,
+            Err(error) => {
+                warnings.push(format!("Electron profile key: {error}"));
+                None
+            }
+        };
+        let candidates: Vec<PathBuf> = inner
+            .tools
+            .iter()
+            .flat_map(|tool| tool.files.iter().map(|file| file.path.clone()))
+            .collect();
+        let outcome = import_history(
+            &self.legacy_root,
+            inner.files.history(),
+            &candidates,
+            profile_key.as_ref(),
+        );
+        warnings.extend(outcome.warnings.iter().cloned());
+        for warning in &warnings {
+            self.log("migration", warning);
+        }
+        self.log(
+            "migration",
+            &format!(
+                "Imported {} snapshots ({} existing, {} skipped) for {} files; {} unmatched folders",
+                outcome.snapshots_imported,
+                outcome.snapshots_existing,
+                outcome.snapshots_skipped,
+                outcome.files_matched,
+                outcome.unmatched_folders
+            ),
+        );
+        let record = ImportRecord {
+            version: RECORD_VERSION,
+            completed_at: now_ms(),
+            source: self.legacy_root.to_string_lossy().into_owned(),
+            settings_imported,
+            snapshots_imported: outcome.snapshots_imported,
+            snapshots_existing: outcome.snapshots_existing,
+            snapshots_skipped: outcome.snapshots_skipped,
+            files_matched: outcome.files_matched,
+            unmatched_folders: outcome.unmatched_folders,
+            warnings: warnings.clone(),
+        };
+        write_record(&self.data_root, &record)?;
+        Ok(LegacyImportResult {
+            settings: inner.settings.clone(),
+            settings_imported,
+            snapshots_imported: outcome.snapshots_imported,
+            snapshots_existing: outcome.snapshots_existing,
+            snapshots_skipped: outcome.snapshots_skipped,
+            files_matched: outcome.files_matched,
+            unmatched_folders: outcome.unmatched_folders,
+            warnings,
         })
     }
 

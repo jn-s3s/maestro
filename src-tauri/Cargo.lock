@@ -2036,6 +2036,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "maestro"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "maestro-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-single-instance",
+ "trash",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "maestro-core"
 version = "0.1.0"
 dependencies = [
@@ -2050,22 +2066,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 2.0.21",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "maestro-prototype"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "base64 0.22.1",
- "maestro-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-single-instance",
- "trash",
  "windows-sys 0.61.2",
 ]
 

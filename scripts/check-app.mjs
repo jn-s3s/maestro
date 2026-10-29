@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
+import crypto from "node:crypto";
+import electron from "electron";
+import { build } from "esbuild";
 import { once } from "node:events";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -8,12 +11,15 @@ import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "playwright-core";
 
 const mode = process.argv[2] ?? "parity";
-assert(["parity", "tray"].includes(mode), "Usage: pnpm app:check parity|tray");
+assert(
+    ["parity", "tray", "migration"].includes(mode),
+    "Usage: pnpm app:check parity|tray|migration",
+);
 assert.equal(process.platform, "win32", "Desktop checks require Windows");
 
-const output = path.resolve("out/phase4");
+const output = path.resolve("out/phase5");
 await fs.mkdir(output, { recursive: true });
-const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "maestro-phase4-"));
+const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "maestro-phase5-"));
 const home = path.join(sandbox, "home");
 const appdata = path.join(sandbox, "appdata");
 const localappdata = path.join(sandbox, "localappdata");
@@ -91,7 +97,7 @@ const others = execFileSync(
     [
         "-NoProfile",
         "-Command",
-        "@(Get-Process -Name 'maestro-prototype' -ErrorAction SilentlyContinue).Count",
+        "@(Get-Process -Name 'maestro' -ErrorAction SilentlyContinue).Count",
     ],
     { encoding: "utf8" },
 ).trim();
@@ -341,10 +347,203 @@ async function waitForDraftsCleared() {
 }
 /* oxlint-enable no-await-in-loop */
 
+/* oxlint-disable no-await-in-loop -- Tree hashing reads entries one at a time. */
+async function hashTree(root) {
+    const lines = [];
+    async function walk(directory, relative) {
+        for (const entry of await fs.readdir(directory, {
+            withFileTypes: true,
+        })) {
+            const full = path.join(directory, entry.name);
+            const key = path.join(relative, entry.name);
+            if (entry.isDirectory()) {
+                lines.push(`d:${key}`);
+                await walk(full, key);
+            } else if (entry.isFile()) {
+                const digest = crypto
+                    .createHash("sha256")
+                    .update(await fs.readFile(full))
+                    .digest("hex");
+                lines.push(`f:${key}:${digest}`);
+            }
+        }
+    }
+    await walk(root, "");
+    lines.sort();
+    return crypto.createHash("sha256").update(lines.join("\n")).digest("hex");
+}
+/* oxlint-enable no-await-in-loop */
+
+/* oxlint-disable no-await-in-loop -- The fixture generates and verifies one profile at a time. */
+async function runElectronFixture(entry, args) {
+    const child = spawn(electron, [entry, ...args], {
+        env: { ...env, APPDATA: appdata },
+        stdio: "inherit",
+    });
+    const [code] = await once(child, "exit");
+    assert.equal(code, 0, `Electron fixture exited with ${code}`);
+}
+
+async function prepareLegacyProfile() {
+    const entry = path.join(output, "legacy-profile.cjs");
+    const fixturePath = path.join(sandbox, "legacy-profile.json");
+    await build({
+        entryPoints: ["scripts/legacy-profile.mjs"],
+        bundle: true,
+        platform: "node",
+        format: "cjs",
+        external: ["electron"],
+        outfile: entry,
+    });
+    await runElectronFixture(entry, [
+        "seed",
+        fixturePath,
+        JSON.stringify({ settingsPath, customPath }),
+    ]);
+    return {
+        entry,
+        fixturePath,
+        fixture: JSON.parse(await fs.readFile(fixturePath, "utf8")),
+    };
+}
+/* oxlint-enable no-await-in-loop */
+
+async function migrationCheck() {
+    const executable = path.resolve("src-tauri/target/release/maestro.exe");
+    await fs.writeFile(settingsPath, original);
+    await fs.writeFile(customPath, '{"custom":true}\n');
+    const prepared = await prepareLegacyProfile();
+    const legacyRoot = path.join(appdata, "maestro");
+    const legacyBefore = await hashTree(legacyRoot);
+
+    const instance = await launch(executable, 19232);
+    const { page } = instance;
+    const pageErrors = instance.pageErrors;
+    const checks = [];
+    try {
+        await page
+            .getByText("Claude Code", { exact: true })
+            .first()
+            .waitFor({ timeout: 20000 });
+        const statusBefore = await page.evaluate(() =>
+            globalThis.window.api.legacyStatus(),
+        );
+        assert.equal(statusBefore.available, true);
+        assert.equal(statusBefore.alreadyImported, false);
+
+        await page.getByTitle("Settings", { exact: true }).click();
+        await page.getByText("Maestro 1 migration", { exact: true }).waitFor();
+        checks.push("migration status");
+
+        await page
+            .getByRole("button", { name: "Import settings and history" })
+            .click();
+        await page
+            .getByText(/^Imported /)
+            .first()
+            .waitFor({ timeout: 15000 });
+        await waitForSetting("theme", "dark");
+        await waitForSetting("closeToTray", true);
+        await waitForSetting("softWrap", false);
+        const importedSettings = await readSettingsFile();
+        assert(importedSettings.hiddenTools.includes("aider"));
+        assert(
+            importedSettings.custom.some(
+                (entry) => entry.name === "Legacy Custom",
+            ),
+        );
+        await page.waitForFunction(() =>
+            globalThis.document.documentElement.classList.contains("dark"),
+        );
+        checks.push("settings import");
+
+        const backups = await page.evaluate(
+            async (target) =>
+                (await globalThis.window.api.listBackups(target)).entries,
+            settingsPath,
+        );
+        assert.equal(backups.length, 2, "two imported snapshots");
+        const contents = await page.evaluate(
+            async (paths) =>
+                Promise.all(
+                    paths.map(
+                        async (backupPath) =>
+                            (await globalThis.window.api.readBackup(backupPath))
+                                .content,
+                    ),
+                ),
+            backups.map((entry) => entry.path),
+        );
+        assert(contents.includes(prepared.fixture.plainContent));
+        assert(contents.includes(prepared.fixture.encryptedContent));
+        checks.push("encrypted history import");
+
+        const record = JSON.parse(
+            await fs.readFile(path.join(dataRoot, "migration.json"), "utf8"),
+        );
+        assert.equal(record.settingsImported, true);
+        assert.equal(record.snapshotsImported, 2);
+        assert.equal(record.filesMatched, 1);
+        assert.equal(record.unmatchedFolders, 1);
+        checks.push("migration record");
+
+        const statusAfter = await page.evaluate(() =>
+            globalThis.window.api.legacyStatus(),
+        );
+        assert.equal(statusAfter.alreadyImported, true);
+        await page
+            .getByRole("button", { name: "Import new Maestro 1 history" })
+            .click();
+        await page.getByText("No new Maestro 1 data to import").waitFor();
+        const secondRecord = JSON.parse(
+            await fs.readFile(path.join(dataRoot, "migration.json"), "utf8"),
+        );
+        assert.equal(secondRecord.snapshotsImported, 0);
+        assert.equal(secondRecord.snapshotsExisting, 2);
+        checks.push("idempotent import");
+
+        await page.getByRole("button", { name: "Done" }).click();
+        await page
+            .getByText("Legacy Custom", { exact: true })
+            .first()
+            .waitFor();
+        await openFile(page, customPath, "Legacy Custom");
+        assert((await editorText(page)).includes('"custom"'));
+        checks.push("imported custom entry");
+
+        await page.screenshot({ path: path.join(output, "migration.png") });
+        assert.equal(
+            await hashTree(legacyRoot),
+            legacyBefore,
+            "Maestro 1 data must stay untouched",
+        );
+        await runElectronFixture(prepared.entry, [
+            "verify",
+            prepared.fixturePath,
+        ]);
+        checks.push("rollback keeps Maestro 1 readable");
+        assert.deepEqual(pageErrors, []);
+        checks.push("no page errors");
+
+        const report = {
+            measuredAt: new Date().toISOString(),
+            mode,
+            executable,
+            endpoint: "settings and encrypted history migration from Maestro 1",
+            checks,
+        };
+        await fs.writeFile(
+            path.join(output, "migration.json"),
+            JSON.stringify(report, null, 2),
+        );
+        console.log(JSON.stringify(report, null, 2));
+    } finally {
+        await close(instance);
+    }
+}
+
 async function parityCheck() {
-    const executable = path.resolve(
-        "src-tauri/target/release/maestro-prototype.exe",
-    );
+    const executable = path.resolve("src-tauri/target/release/maestro.exe");
     let instance = await launch(executable, 19230);
     let page = instance.page;
     const pageErrors = instance.pageErrors;
@@ -830,9 +1029,7 @@ function driveTray(action, processId, options = []) {
 }
 
 async function trayCheck() {
-    const executable = path.resolve(
-        "src-tauri/target/release/maestro-prototype.exe",
-    );
+    const executable = path.resolve("src-tauri/target/release/maestro.exe");
     await fs.writeFile(
         path.join(dataRoot, "settings.json"),
         JSON.stringify(
@@ -928,12 +1125,14 @@ async function trayCheck() {
 try {
     if (mode === "tray") {
         await trayCheck();
+    } else if (mode === "migration") {
+        await migrationCheck();
     } else {
         await parityCheck();
     }
-    console.log(`Phase 4 ${mode} check completed. Evidence: ${output}`);
+    console.log(`Phase 5 ${mode} check completed. Evidence: ${output}`);
 } catch (error) {
-    console.error(`Phase 4 ${mode} check failed:`, error);
+    console.error(`Phase 5 ${mode} check failed:`, error);
     process.exitCode = 1;
 } finally {
     if (process.exitCode) {

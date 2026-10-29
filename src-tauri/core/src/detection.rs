@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::{
     paths::{
-        canonicalize, canonical_or_lexical, component_count, is_within, lexical_normalize,
+        canonical_or_lexical, canonicalize, component_count, is_within, lexical_normalize,
         metadata_is_link, path_key,
     },
     settings::Workspace,
@@ -952,9 +952,7 @@ fn workspace_tool(workspace: &Workspace) -> Tool {
                 if parent == workspace.path {
                     break;
                 }
-                if fs::symlink_metadata(parent)
-                    .is_ok_and(|metadata| metadata_is_link(&metadata))
-                {
+                if fs::symlink_metadata(parent).is_ok_and(|metadata| metadata_is_link(&metadata)) {
                     return None;
                 }
                 ancestor = parent.parent();
@@ -1126,7 +1124,12 @@ mod tests {
             group: ToolGroup::Custom,
             subtitle: None,
             roots: Vec::new(),
-            files: vec![make_file("synthetic/file", "settings.json", available.clone(), "Config")],
+            files: vec![make_file(
+                "synthetic/file",
+                "settings.json",
+                available.clone(),
+                "Config",
+            )],
             folders: Vec::new(),
         };
         assert_eq!(tool.files[0].state, FileState::Available);

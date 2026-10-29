@@ -72,10 +72,7 @@ fn excludes_secret_file_when_another_registration_is_not_flagged() {
     std::fs::create_dir_all(&project).unwrap();
     let secret = project.join(".mcp.json");
     std::fs::write(&secret, "needle in an api token").unwrap();
-    let custom_tools = detect_tools(
-        &synthetic.env(),
-        &[custom("custom-mcp", &secret)],
-    );
+    let custom_tools = detect_tools(&synthetic.env(), &[custom("custom-mcp", &secret)]);
     let workspace = Workspace {
         id: "workspace-mcp".into(),
         name: "Project".into(),
@@ -150,9 +147,9 @@ fn excludes_paths_before_applying_result_limit() {
         .files[0]
         .path
         .clone();
-    let excluded = std::collections::HashSet::from([
-        maestro_core::paths::path_key(&maestro_core::paths::canonical_or_lexical(&hidden)),
-    ]);
+    let excluded = std::collections::HashSet::from([maestro_core::paths::path_key(
+        &maestro_core::paths::canonical_or_lexical(&hidden),
+    )]);
 
     let hits = search_files_excluding(&store, "needle", 1, &excluded);
     assert_eq!(hits.len(), 1);

@@ -38,6 +38,7 @@ const api: Api = {
         historyLimit: false,
         schemaAdvice: false,
         draftRecovery: false,
+        legacyImport: false,
     },
     listTools: () => ipcRenderer.invoke("tools:list"),
     readFile: (filePath) => ipcRenderer.invoke("file:read", filePath),

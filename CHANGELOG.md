@@ -15,9 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Phase 3 of the Rust rewrite: a Tauri desktop app with feature parity, including real tool detection, conflict-aware saving, encrypted history and restore, folder management, custom entries, settings, watching, tray recents and close to tray
 - Phase 4 of the Rust rewrite: tabbed editing with in-memory drafts, a command palette with content search that skips secret and `.env` files, registered workspaces with project-local configs, favorites and sidebar filtering, inline syntax diagnostics, an inspector, a three-way conflict dialog and snapshot names, pins and configurable retention
 - Phase 4 follow-ups: schema key suggestions and deprecated-setting warnings for known JSON configs, MCP and Library navigation views, available, missing, unreadable and unsupported discovery states, and encrypted drafts that are restored after a restart
+- Phase 5 of the Rust rewrite: a Maestro 1 migration in Settings that imports settings and decrypts Electron snapshot history into the Tauri data folder, leaving `%APPDATA%\maestro` untouched for rollback
 - A typed Tauri bridge in `src/app` that reuses the existing React interface, with theme, recent-file and filesystem-change events
 - Rust settings, JSON and JSONC save validation, folder policies, history path validation and Windows-safe entry name validation in `maestro-core`
-- Workspace discovery, registered-file search and snapshot metadata in `maestro-core`, with 38 Tauri commands and permission entries for each
+- Workspace discovery, registered-file search and snapshot metadata in `maestro-core`, with 40 Tauri commands and permission entries for each, including `legacy_status` and `import_legacy`
+- A Maestro 1 migration and rollback entry in the Windows desktop check suite, backed by a synthetic Electron safe storage profile
 
 ### Changed
 
@@ -26,7 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Electron packaging now includes only the built main, preload and renderer output, so prototype assets cannot enter the portable app
 - The Tauri app keeps its own settings, encrypted history and encrypted drafts in its app-data folder, leaves the Electron data in `%APPDATA%\maestro` untouched and does not run the legacy destructive startup resets
 - The Phase 1 fixture interface in `src/prototype` is retired and excluded from builds, and the stale `prototype:*` scripts are removed in favor of the `app:*` commands
-- Tauri-only controls for workspaces, content search, snapshot metadata and retention are hidden in the Electron build through API capability flags
+- Tauri-only controls for workspaces, content search, snapshot metadata, retention and migration are hidden in the Electron build through API capability flags
+- The Tauri beta now uses the identifier `dev.jn-s3s.maestro` and the binary `maestro.exe`, with its data root at `%APPDATA%\dev.jn-s3s.maestro`
+- The Electron snapshot decoder moved into `maestro-core`, so the compatibility probe and migration share one implementation
 
 ### Fixed
 

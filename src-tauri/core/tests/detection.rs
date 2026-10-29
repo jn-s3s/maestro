@@ -297,9 +297,11 @@ fn detects_project_configs_inside_a_workspace() {
             .unwrap_or_default()
             .contains("precedence")
     );
-    assert!(registered_paths(&tools).contains(&maestro_core::paths::path_key(
-        &maestro_core::paths::canonical_or_lexical(&project.join(".claude/settings.json"))
-    )));
+    assert!(
+        registered_paths(&tools).contains(&maestro_core::paths::path_key(
+            &maestro_core::paths::canonical_or_lexical(&project.join(".claude/settings.json"))
+        ))
+    );
 }
 
 #[test]
@@ -336,7 +338,10 @@ fn workspace_detection_skips_symlinked_configs() {
         path: project,
     };
     let tools = detect_tools_with_workspaces(&synthetic.env(), &[], &[workspace]);
-    let tool = tools.iter().find(|tool| tool.id == "workspace-link").unwrap();
+    let tool = tools
+        .iter()
+        .find(|tool| tool.id == "workspace-link")
+        .unwrap();
     assert!(tool.files.is_empty());
 }
 

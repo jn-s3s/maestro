@@ -16,6 +16,8 @@
         "allow-set-theme",
         "allow-set-close-to-tray",
         "allow-set-soft-wrap",
+        "allow-legacy-status",
+        "allow-import-legacy",
         "allow-add-custom",
         "allow-remove-custom",
         "allow-add-workspace",

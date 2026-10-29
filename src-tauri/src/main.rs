@@ -63,6 +63,8 @@ fn main() {
             commands::set_theme,
             commands::set_close_to_tray,
             commands::set_soft_wrap,
+            commands::legacy_status,
+            commands::import_legacy,
             commands::add_custom,
             commands::remove_custom,
             commands::add_workspace,

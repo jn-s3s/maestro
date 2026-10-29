@@ -127,7 +127,11 @@ pub fn strip_json_comments(src: &str) -> String {
                         index = bytes.len();
                     } else {
                         for byte in &bytes[comment_start..index + 2] {
-                            out.push(if matches!(byte, b'\n' | b'\r') { *byte } else { b' ' });
+                            out.push(if matches!(byte, b'\n' | b'\r') {
+                                *byte
+                            } else {
+                                b' '
+                            });
                         }
                         index += 2;
                     }

@@ -21,7 +21,9 @@ Core stack:
 
 The main process owns the filesystem: tool detection lives in `src/main/registry.ts`, backups in `src/main/backups.ts`, settings persistence in `src/main/store.ts`. The renderer talks to it exclusively through the IPC surface exposed by `src/preload/`. Shared types live in `src/shared/types`.
 
-The Rust rewrite under `src-tauri/` is a full Tauri 2 desktop app (Phase 4), not a fixture. Its Tauri-free `maestro-core` crate owns detection, discovery states, safe file access, workspace discovery, search, validation advice, encrypted drafts, encrypted history, settings and watching. `src/app/` installs a typed Tauri bridge and mounts the same React UI from `src/renderer/src/`. The UI adds tabs with encrypted draft recovery, a command palette with sensitive-file-excluded content search, favorites, MCP and Library views, schema suggestions, deprecated-setting warnings, per-file discovery states, inline diagnostics, an inspector, a three-way conflict dialog and snapshot naming, pinning and retention. Electron remains the shipped build; the Tauri app uses its own app-data folder and does not read Electron settings or history yet. Full JSON Schema validation, the shared MCP manager and profiles remain follow-ups. Phase 5 migration remains open.
+The Rust rewrite under `src-tauri/` is a full Tauri 2 desktop app (Phase 5), not a fixture. Its Tauri-free `maestro-core` crate owns detection, discovery states, safe file access, workspace discovery, search, validation advice, encrypted drafts, encrypted history, Maestro 1 migration, settings and watching. `src/app/` installs a typed Tauri bridge and mounts the same React UI from `src/renderer/src/`. The UI adds tabs with encrypted draft recovery, a command palette with sensitive-file-excluded content search, favorites, MCP and Library views, schema suggestions, deprecated-setting warnings, per-file discovery states, inline diagnostics, an inspector, a three-way conflict dialog and snapshot naming, pinning and retention.
+
+The Tauri app uses the identifier `dev.jn-s3s.maestro` and the binary `maestro.exe`; its app-data folder is normally `%APPDATA%\dev.jn-s3s.maestro`. The Settings modal can import Maestro 1 settings and encrypted history from `%APPDATA%\maestro` through read-only migration. Electron remains the shipped build. Full JSON Schema validation, the shared MCP manager and profiles remain follow-ups. Replacing the Electron release channel with the Tauri app remains release work.
 
 ## Commands
 
@@ -36,10 +38,11 @@ This repository uses **pnpm 10** exclusively. Do not use npm or yarn, and do not
 - `pnpm clear` - dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched)
 - `pnpm dist` - regenerate icons, build and package into `release/`
 - `pnpm app:dev` - start the Tauri desktop app in development mode with hot reload
-- `pnpm app:build` - build the Tauri release executable to `src-tauri/target/release/maestro-prototype.exe`
+- `pnpm app:build` - build the Tauri release executable to `src-tauri/target/release/maestro.exe`
 - `pnpm app:dist` - build the optional Tauri installer with the WebView2 offline runtime
 - `pnpm app:check parity` - run the Windows parity GUI check (needs `pnpm app:build` first)
 - `pnpm app:check tray` - run the Windows tray lifecycle check (needs `pnpm app:build` first)
+- `pnpm app:check migration` - run the Maestro 1 migration and rollback GUI check (needs `pnpm app:build` first)
 - `pnpm format` - `prettier --write .`
 - `pnpm format:check` - `prettier --check .`
 
@@ -68,27 +71,28 @@ For changes that affect desktop behavior, also run the GUI checks after a releas
 pnpm app:build
 pnpm app:check parity
 pnpm app:check tray
+pnpm app:check migration
 ```
 
 A direct `cargo build --release` embeds the development URL and is not a valid check binary; always build through `pnpm app:build`.
 
 ## Repository Layout
 
-| Path              | Description                                                                                                                                                                            |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/main/`       | Electron main process: window lifecycle, IPC handlers, registry, backups, store                                                                                                        |
-| `src/preload/`    | Context bridge exposing typed IPC to the renderer                                                                                                                                      |
-| `src/renderer/`   | React UI shared by Electron and Tauri: components in `components/`, entry in `main.tsx`, theme in `theme.tsx`                                                                          |
-| `src/app/`        | Tauri frontend entry and typed desktop bridge; mounts the shared renderer                                                                                                              |
-| `src/shared/`     | Types shared between main, preload and renderer                                                                                                                                        |
-| `src/prototype/`  | Retired Phase 1 fixture interface, excluded from builds and linting                                                                                                                    |
-| `src-tauri/`      | Tauri 2 desktop app (Phase 4): commands, state, tray, shell integration and the legacy probe                                                                                           |
-| `src-tauri/core/` | Tauri-free `maestro-core` crate: detection and discovery states, workspaces, search, schema advice, encrypted drafts, settings, file access, encrypted history and watching with tests |
-| `out/`            | electron-vite and Vite build output (gitignored, regenerated by `pnpm build` and `pnpm app:web:build`)                                                                                 |
-| `release/`        | electron-builder packaging output (gitignored, produced by `pnpm dist`)                                                                                                                |
-| `resources/`      | App icon and tray images bundled as extraResources and consumed by electron-builder as `buildResources`                                                                                |
-| `scripts/`        | Build, GUI check and maintenance utilities such as icon generation, log dumping and data clearing                                                                                      |
-| `.github/`        | CI/CD workflows, issue forms, PR template, community health files                                                                                                                      |
+| Path              | Description                                                                                                                                                                                                 |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/main/`       | Electron main process: window lifecycle, IPC handlers, registry, backups, store                                                                                                                             |
+| `src/preload/`    | Context bridge exposing typed IPC to the renderer                                                                                                                                                           |
+| `src/renderer/`   | React UI shared by Electron and Tauri: components in `components/`, entry in `main.tsx`, theme in `theme.tsx`                                                                                               |
+| `src/app/`        | Tauri frontend entry and typed desktop bridge; mounts the shared renderer                                                                                                                                   |
+| `src/shared/`     | Types shared between main, preload and renderer                                                                                                                                                             |
+| `src/prototype/`  | Retired Phase 1 fixture interface, excluded from builds and linting                                                                                                                                         |
+| `src-tauri/`      | Tauri 2 desktop app (Phase 5): commands, state, tray, shell integration and the legacy probe                                                                                                                |
+| `src-tauri/core/` | Tauri-free `maestro-core` crate: detection and discovery states, workspaces, search, schema advice, encrypted drafts, settings, file access, encrypted history, Maestro 1 migration and watching with tests |
+| `out/`            | electron-vite and Vite build output (gitignored, regenerated by `pnpm build` and `pnpm app:web:build`)                                                                                                      |
+| `release/`        | electron-builder packaging output (gitignored, produced by `pnpm dist`)                                                                                                                                     |
+| `resources/`      | App icon and tray images bundled as extraResources and consumed by electron-builder as `buildResources`                                                                                                     |
+| `scripts/`        | Build, GUI check and maintenance utilities such as icon generation, log dumping and data clearing                                                                                                           |
+| `.github/`        | CI/CD workflows, issue forms, PR template, community health files                                                                                                                                           |
 
 For end user documentation see [README.md](README.md). For contribution workflow and tracked style sources see [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -59,14 +59,15 @@ Maestro is a Windows desktop app that detects config files and folders for popul
 
 Maestro opens config files inside its built-in editor up to **5 MB**. Anything larger returns an error that suggests opening the file in your default editor instead. Electron keeps at most 20 snapshots per file. The Tauri build defaults to 20 snapshots and lets you choose 1 to 100 in Settings; pinned snapshots are exempt from pruning. Identical snapshots are skipped to keep history focused on real changes. The Tauri build writes unsaved tab drafts to encrypted draft files and restores them on the next start; Electron keeps drafts in memory only, so closing it discards unsaved edits. The window can be resized to a minimum width of 480 pixels.
 
-Electron keeps all persistent state (settings, custom entries, recent files, backups, logs) under `%APPDATA%\maestro`. The Tauri build keeps its own settings, workspaces, encrypted history, encrypted drafts and logs in its app-data folder and never reads the Electron data.
+Electron keeps all persistent state (settings, custom entries, recent files, backups, logs) under `%APPDATA%\maestro`. The Tauri build keeps its own settings, workspaces, encrypted history, encrypted drafts and logs under `%APPDATA%\dev.jn-s3s.maestro`. It never writes the Electron folder. The Settings modal can import Electron settings and encrypted snapshot history; the legacy data stays untouched, so the Electron app keeps working and can be used as a rollback.
 
-Inside the data root:
+Inside the Electron data root:
 
 - `settings.json` holds theme, tray, hidden tools, recent files and custom entries.
-- `backups\<basename>-<12-char-sha1>\` stores the per-file backup snapshots, capped at 20 per file with deduplication. Snapshots of secret-flagged files are stored encrypted and can only be decrypted by the same Windows user account that created them.
-- `drafts\` stores encrypted unsaved editor buffers, one per file, in the Tauri build. Drafts are removed when the file is saved, reloaded or its dirty tab is closed.
+- `backups\<basename>-<12-char-sha1>\` stores the per-file backup snapshots. The Electron build caps them at 20 per file; the Tauri build defaults to 20 and allows 1 to 100. Snapshots of secret-flagged files are encrypted and can only be decrypted by the same Windows user account that created them.
 - `logs\main.log` is the rotating main process log (rotated to `main.log.old` at 512 KB).
+
+Inside the Tauri data root, every snapshot is encrypted. `drafts\` stores encrypted unsaved editor buffers, one per file. Drafts are removed when the file is saved, reloaded or its dirty tab is closed. `migration.json` records the last import from Maestro 1, including counts and non-fatal warnings.
 
 Use `pnpm clear` during development to reset just the `backups/` and `logs/` folders (it leaves `settings.json` alone, dry-runs by default and only deletes when you pass `--yes`), and `pnpm logs` to print the log lines together with the settings path and the full backup tree.
 
@@ -99,16 +100,16 @@ pnpm dev
 | `pnpm clear`     | Dry-run by default; pass `--yes` to delete `%APPDATA%\maestro\backups` and `%APPDATA%\maestro\logs` (leaves `settings.json` untouched) |
 | `pnpm dist`      | Regenerate icons, build and package into `release/`                                                                                    |
 | `pnpm app:dev`   | Start the Tauri desktop app in development mode with hot reload                                                                        |
-| `pnpm app:build` | Build the Tauri release executable to `src-tauri/target/release/maestro-prototype.exe`                                                 |
+| `pnpm app:build` | Build the Tauri release executable to `src-tauri/target/release/maestro.exe`                                                           |
 | `pnpm app:dist`  | Build the optional Tauri installer with the WebView2 offline runtime                                                                   |
 
 ### Rust desktop app
 
-Phase 4 runs the full Maestro workflow in Tauri and adds the redesigned navigation shell: tabs with encrypted draft recovery, a command palette with sensitive-file-excluded content search, registered workspaces with project-local configs, MCP and Library views, favorites, sidebar filtering, schema key suggestions, deprecated-setting warnings, per-file discovery states, an inspector, a three-way conflict dialog and snapshot names, pins and configurable retention. It reuses the existing React interface through a typed bridge. See [the Rust rewrite plan](docs/rust-rewrite-plan.md#phase-4-development-record) for the delivered surface, deliberate differences and verification results.
+Phase 5 runs the full Maestro workflow in Tauri as a beta with the redesigned navigation shell: tabs with encrypted draft recovery, a command palette with sensitive-file-excluded content search, registered workspaces with project-local configs, MCP and Library views, favorites, sidebar filtering, schema key suggestions, deprecated-setting warnings, per-file discovery states, an inspector, a three-way conflict dialog and snapshot names, pins and configurable retention. It reuses the existing React interface through a typed bridge. See [the Rust rewrite plan](docs/rust-rewrite-plan.md#phase-5-development-record) for the delivered surface, migration behavior and verification results.
 
-Run `pnpm app:dev` with Rust, the Windows MSVC build tools and WebView2 installed. `pnpm app:build` creates the release executable. `pnpm app:dist` builds the optional installer for machines without WebView2. `pnpm app:check parity` and `pnpm app:check tray` repeat the desktop checks after a release build.
+Run `pnpm app:dev` with Rust, the Windows MSVC build tools and WebView2 installed. `pnpm app:build` creates the release executable. `pnpm app:dist` builds the optional installer for machines without WebView2. `pnpm app:check parity`, `pnpm app:check tray` and `pnpm app:check migration` repeat the desktop checks after a release build.
 
-The Tauri app stores its settings, workspaces, encrypted history and encrypted drafts under its own app-data folder and never opens the Electron data in `%APPDATA%\maestro`. Migration of existing settings and history remains Phase 5 work. The normal `pnpm dev` and `pnpm dist` commands still target Electron.
+The Tauri app stores its settings, workspaces, encrypted history and encrypted drafts under `%APPDATA%\dev.jn-s3s.maestro` and never opens the Electron data in `%APPDATA%\maestro` for writing. Import from Maestro 1 in Settings copies settings and encrypted snapshots into the Tauri data folder, including the snapshots' original names; the Electron data remains byte-identical for rollback. The normal `pnpm dev` and `pnpm dist` commands still target Electron.
 
 ### Project structure
 
@@ -121,7 +122,7 @@ src/
   shared/     Types shared between main, preload and renderer
   prototype/  Retired Phase 1 fixture interface, excluded from every build
 src-tauri/
-  core/       Tauri-free Rust library: detection, files, search, history, settings, validation and watching
+  core/       Tauri-free Rust library: detection, files, search, history, migration, settings, validation and watching
   src/        Tauri commands, state, tray, shell integration and the legacy probe
 scripts/      Build-time utilities, GUI checks and maintenance tools
 resources/    App icon and tray images bundled as extraResources

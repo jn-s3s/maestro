@@ -102,8 +102,7 @@ impl DraftStore {
             base_revision: base_revision.map(str::to_owned),
             saved_at,
         };
-        let encoded =
-            serde_json::to_string(&payload).expect("a draft payload always serializes");
+        let encoded = serde_json::to_string(&payload).expect("a draft payload always serializes");
         let sealed = crypto::seal(&self.key, &encoded)?;
         if sealed.len() as u64 > MAX_DRAFT_FILE_BYTES {
             return Err(DraftError::TooLarge);
@@ -217,9 +216,7 @@ impl DraftStore {
             path: self.root.clone(),
             source: io::Error::other(error.to_string()),
         })?;
-        let temp = self
-            .root
-            .join(format!(".tmp-{}", hex_lower(&random)));
+        let temp = self.root.join(format!(".tmp-{}", hex_lower(&random)));
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -232,7 +229,9 @@ impl DraftStore {
             path: temp.clone(),
             source,
         })?;
-        let result = file.write_all(sealed.as_bytes()).and_then(|()| file.sync_all());
+        let result = file
+            .write_all(sealed.as_bytes())
+            .and_then(|()| file.sync_all());
         drop(file);
         if let Err(source) = result {
             let _ = fs::remove_file(&temp);

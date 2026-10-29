@@ -215,6 +215,98 @@ impl HistoryStore {
         Ok(Some(destination))
     }
 
+    /// Stores imported plaintext under its original entry name, re-encrypting
+    /// it with this store's key.
+    ///
+    /// Consecutive identical content is skipped, matching [`HistoryStore::snapshot`].
+    /// An existing entry with the same name but different content is written
+    /// under an `imported-N-` prefix instead of being overwritten.
+    ///
+    /// @param file_path - Absolute path of the source file.
+    /// @param entry_name - Original snapshot file name.
+    /// @param content - Plaintext snapshot content.
+    /// @returns True when a new snapshot was written, false when the newest
+    /// snapshot already holds the same content.
+    /// @throws When the name is unsafe, the content is too large, or the write
+    /// fails.
+    pub fn import_entry(
+        &self,
+        file_path: &Path,
+        entry_name: &str,
+        content: &str,
+    ) -> Result<bool, HistoryError> {
+        let name = validate_entry_name(entry_name)?;
+        if name.starts_with('.') || name.starts_with(META_FILE) {
+            return Err(HistoryError::InvalidEntryName);
+        }
+        if content.len() as u64 > MAX_SNAPSHOT_PLAINTEXT_BYTES {
+            return Err(HistoryError::TooLarge);
+        }
+        let dir = self.resolve_history_dir(&self.backup_dir(file_path))?;
+        fs::create_dir_all(&dir).map_err(|source| HistoryError::Io {
+            operation: "create history folder",
+            path: dir.clone(),
+            source,
+        })?;
+
+        if self
+            .read_entry(&dir, name)
+            .is_ok_and(|previous| previous == content)
+        {
+            return Ok(false);
+        }
+        let names = self.entry_names(&dir)?;
+        if let Some(latest) = names.iter().rev().find(|name| !is_meta_file(name)) {
+            if self
+                .read_entry(&dir, latest)
+                .is_ok_and(|previous| previous == content)
+            {
+                return Ok(false);
+            }
+        }
+
+        let sealed = crypto::seal(&self.key, content)?;
+        for attempt in 0..1000u32 {
+            let candidate_name = if attempt == 0 {
+                name.to_owned()
+            } else {
+                format!("imported-{attempt}-{name}")
+            };
+            let candidate = dir.join(&candidate_name);
+            match create_new_file(&candidate) {
+                Ok(mut file) => {
+                    if let Err(source) = file
+                        .write_all(sealed.as_bytes())
+                        .and_then(|()| file.sync_all())
+                    {
+                        drop(file);
+                        let _ = fs::remove_file(&candidate);
+                        return Err(HistoryError::Io {
+                            operation: "write snapshot",
+                            path: candidate,
+                            source,
+                        });
+                    }
+                    self.prune(&dir);
+                    return Ok(true);
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(source) => {
+                    return Err(HistoryError::Io {
+                        operation: "create snapshot",
+                        path: candidate,
+                        source,
+                    });
+                }
+            }
+        }
+        Err(HistoryError::Io {
+            operation: "choose a snapshot name in",
+            path: dir,
+            source: io::Error::new(io::ErrorKind::AlreadyExists, "every candidate name exists"),
+        })
+    }
+
     /// Lists snapshots for a file, newest first.
     ///
     /// @param file_path - Absolute path of the source file.
@@ -349,13 +441,12 @@ impl HistoryStore {
             if is_meta_file(&name) {
                 continue;
             }
-            let metadata = fs::symlink_metadata(entry.path()).map_err(|source| {
-                HistoryError::Io {
+            let metadata =
+                fs::symlink_metadata(entry.path()).map_err(|source| HistoryError::Io {
                     operation: "inspect source history entry",
                     path: entry.path(),
                     source,
-                }
-            })?;
+                })?;
             if metadata_is_link(&metadata) || !metadata.file_type().is_file() {
                 return Err(HistoryError::InvalidEntryName);
             }
@@ -518,29 +609,25 @@ impl HistoryStore {
     }
 
     fn resolve_history_dir(&self, dir: &Path) -> Result<PathBuf, HistoryError> {
-        let root = crate::paths::canonicalize(&self.root).map_err(|source| {
-            HistoryError::Io {
-                operation: "resolve history root",
-                path: self.root.clone(),
-                source: match source {
-                    crate::paths::PathError::Resolve { source, .. } => source,
-                    crate::paths::PathError::NotAbsolute(_) => {
-                        io::Error::new(io::ErrorKind::InvalidInput, "history path is not absolute")
-                    }
-                },
-            }
+        let root = crate::paths::canonicalize(&self.root).map_err(|source| HistoryError::Io {
+            operation: "resolve history root",
+            path: self.root.clone(),
+            source: match source {
+                crate::paths::PathError::Resolve { source, .. } => source,
+                crate::paths::PathError::NotAbsolute(_) => {
+                    io::Error::new(io::ErrorKind::InvalidInput, "history path is not absolute")
+                }
+            },
         })?;
-        let physical_dir = crate::paths::canonicalize(dir).map_err(|source| {
-            HistoryError::Io {
-                operation: "resolve history folder",
-                path: dir.to_path_buf(),
-                source: match source {
-                    crate::paths::PathError::Resolve { source, .. } => source,
-                    crate::paths::PathError::NotAbsolute(_) => {
-                        io::Error::new(io::ErrorKind::InvalidInput, "history path is not absolute")
-                    }
-                },
-            }
+        let physical_dir = crate::paths::canonicalize(dir).map_err(|source| HistoryError::Io {
+            operation: "resolve history folder",
+            path: dir.to_path_buf(),
+            source: match source {
+                crate::paths::PathError::Resolve { source, .. } => source,
+                crate::paths::PathError::NotAbsolute(_) => {
+                    io::Error::new(io::ErrorKind::InvalidInput, "history path is not absolute")
+                }
+            },
         })?;
         if !is_within(&physical_dir, &root)
             || component_count(&physical_dir) != component_count(&root) + 1
@@ -640,12 +727,7 @@ impl HistoryStore {
             if excess == 0 {
                 break;
             }
-            if is_meta_file(&name)
-                || meta
-                    .entries
-                    .get(&name)
-                    .is_some_and(|entry| entry.pinned)
-            {
+            if is_meta_file(&name) || meta.entries.get(&name).is_some_and(|entry| entry.pinned) {
                 continue;
             }
             if fs::remove_file(dir.join(&name)).is_err() {
@@ -689,8 +771,7 @@ fn validate_snapshot_name(name: Option<&str>) -> Result<Option<String>, HistoryE
     if trimmed.is_empty() {
         return Ok(None);
     }
-    if trimmed.chars().count() > MAX_SNAPSHOT_NAME_CHARS || trimmed.chars().any(char::is_control)
-    {
+    if trimmed.chars().count() > MAX_SNAPSHOT_NAME_CHARS || trimmed.chars().any(char::is_control) {
         return Err(HistoryError::InvalidSnapshotName);
     }
     Ok(Some(trimmed.to_owned()))
@@ -917,6 +998,45 @@ mod tests {
     }
 
     #[test]
+    fn imports_under_original_names_without_overwriting() {
+        let temp = tempfile::tempdir().unwrap();
+        let history = store(temp.path(), 20);
+        let file = temp.path().join("settings.json");
+        let original = "2026-10-20_10-00-00-000_settings.json";
+
+        assert!(history.import_entry(&file, original, "imported").unwrap());
+        assert!(history.import_entry(&file, original, "different").unwrap());
+        let names: Vec<String> = history
+            .list(&file)
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.file)
+            .collect();
+        assert!(names.contains(&original.to_owned()));
+        assert!(names.contains(&format!("imported-1-{original}")));
+        assert_eq!(names.len(), 2);
+
+        for name in [
+            "",
+            "..",
+            "../outside",
+            "nested/file",
+            ".hidden",
+            "_meta.json",
+            "file:stream",
+            "CON",
+        ] {
+            assert!(
+                matches!(
+                    history.import_entry(&file, name, "x"),
+                    Err(HistoryError::InvalidEntryName)
+                ),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn reads_and_deletes_snapshots_by_full_path() {
         let temp = tempfile::tempdir().unwrap();
         let history = store(temp.path(), 20);
@@ -1114,7 +1234,9 @@ mod tests {
         let file = temp.path().join("settings.json");
         history.snapshot(&file, "keep").unwrap();
         let pinned = history.list(&file).unwrap().remove(0);
-        history.set_meta(&pinned.path, Some("pinned"), true).unwrap();
+        history
+            .set_meta(&pinned.path, Some("pinned"), true)
+            .unwrap();
         for index in 0..4 {
             history.snapshot(&file, &format!("value-{index}")).unwrap();
         }
@@ -1146,15 +1268,19 @@ mod tests {
         history.snapshot(&before, "source snapshot").unwrap();
         history.snapshot(&after, "destination snapshot").unwrap();
         let source = history.list(&before).unwrap().remove(0);
-        history.set_meta(&source.path, Some("Source"), true).unwrap();
+        history
+            .set_meta(&source.path, Some("Source"), true)
+            .unwrap();
 
         history.rename_history(&before, &after).unwrap();
 
         let entries = history.list(&after).unwrap();
         assert_eq!(entries.len(), 2);
-        assert!(entries.iter().any(|entry| {
-            entry.name.as_deref() == Some("Source") && entry.pinned
-        }));
+        assert!(
+            entries
+                .iter()
+                .any(|entry| { entry.name.as_deref() == Some("Source") && entry.pinned })
+        );
         assert!(history.list(&before).unwrap().is_empty());
     }
 

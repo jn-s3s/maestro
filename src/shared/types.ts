@@ -169,6 +169,30 @@ export interface RecoveredDraft {
 }
 
 /**
+ * Availability of the Maestro 1 data root and the result of the last import.
+ */
+export interface LegacyStatus {
+    available: boolean;
+    source: string;
+    alreadyImported: boolean;
+    lastImportedAt?: number | null;
+}
+
+/**
+ * Counts returned by one explicit import from the Maestro 1 data root.
+ */
+export interface LegacyImportResult {
+    settings: AppSettings;
+    settingsImported: boolean;
+    snapshotsImported: number;
+    snapshotsExisting: number;
+    snapshotsSkipped: number;
+    filesMatched: number;
+    unmatchedFolders: number;
+    warnings: string[];
+}
+
+/**
  * Optional backend surfaces. The Electron build reports all false and the
  * renderer hides the matching controls instead of calling missing commands.
  */
@@ -179,6 +203,7 @@ export interface ApiCapabilities {
     historyLimit: boolean;
     schemaAdvice: boolean;
     draftRecovery: boolean;
+    legacyImport: boolean;
 }
 
 /**
@@ -245,6 +270,8 @@ export interface Api {
     setTheme(mode: ThemeMode): Promise<AppSettings>;
     setCloseToTray(value: boolean): Promise<AppSettings>;
     setSoftWrap(value: boolean): Promise<AppSettings>;
+    legacyStatus?(): Promise<LegacyStatus>;
+    importLegacy?(): Promise<LegacyImportResult>;
     addCustom(name: string, path: string): Promise<OpResult>;
     removeCustom(id: string): Promise<AppSettings>;
     addWorkspace?(name: string, path: string): Promise<OpResult>;
